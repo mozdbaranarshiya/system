@@ -10,6 +10,54 @@ const esc = (v="") => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<"
 const faRole = {manager:"مدیر مدرسه", teacher:"معلم", student:"دانش‌آموز"};
 const faStatus = {pending:"در انتظار",approved:"تأیید شده",rejected:"رد شده"};
 const faComponent = {continuous:"تکوینی",final:"پایانی"};
+const disciplineLabels={1:"عالی",2:"خیلی خوب",3:"خوب",4:"قابل قبول",5:"نیاز به تلاش"};
+const toFaDigits=(v="")=>String(v)
+  .replace(/[0-9]/g,d=>"۰۱۲۳۴۵۶۷۸۹"[d])
+  .replace(/[٠-٩]/g,d=>"۰۱۲۳۴۵۶۷۸۹"["٠١٢٣٤٥٦٧٨٩".indexOf(d)]);
+const toEnDigits=(v="")=>String(v)
+  .replace(/[۰-۹]/g,d=>"0123456789"["۰۱۲۳۴۵۶۷۸۹".indexOf(d)])
+  .replace(/[٠-٩]/g,d=>"0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)]);
+const faDateTime=(v)=>v?new Intl.DateTimeFormat("fa-IR-u-ca-persian",{dateStyle:"medium",timeStyle:"short"}).format(new Date(v)):"-";
+
+function persianizeNode(root){
+  if(!root)return;
+  const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);
+  const nodes=[];
+  while(walker.nextNode())nodes.push(walker.currentNode);
+  nodes.forEach(n=>{
+    if(n.parentElement?.closest("script,style"))return;
+    const next=toFaDigits(n.nodeValue);
+    if(next!==n.nodeValue)n.nodeValue=next;
+  });
+  if(root.querySelectorAll){
+    root.querySelectorAll("input,textarea").forEach(inp=>{
+      if(["password","file","hidden"].includes(inp.type))return;
+      const next=toFaDigits(inp.value);
+      if(next!==inp.value)inp.value=next;
+    });
+  }
+}
+function setupPersianDigits(){
+  document.addEventListener("input",e=>{
+    const el=e.target;
+    if(!(el instanceof HTMLInputElement||el instanceof HTMLTextAreaElement))return;
+    if(["password","file","hidden"].includes(el.type))return;
+    const pos=el.selectionStart, next=toFaDigits(el.value);
+    if(next!==el.value){
+      el.value=next;
+      try{el.setSelectionRange(pos,pos)}catch(_){}
+    }
+  },true);
+  const observer=new MutationObserver(items=>{
+    items.forEach(m=>m.addedNodes.forEach(n=>{
+      if(n.nodeType===Node.TEXT_NODE){
+        const next=toFaDigits(n.nodeValue); if(next!==n.nodeValue)n.nodeValue=next;
+      }else if(n.nodeType===Node.ELEMENT_NODE)persianizeNode(n);
+    }));
+  });
+  observer.observe(document.body,{childList:true,subtree:true});
+  persianizeNode(document.body);
+}
 const state = {
   sb: configured ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null,
   session:null, profile:null, route:"dashboard",
@@ -59,7 +107,7 @@ function modal(title, body, onSubmit, submitText="ذخیره"){
   };
   $("#modal").showModal();
 }
-function num(v){if(v===""||v===null||v===undefined)return null; const n=Number(v); if(Number.isNaN(n)||n<0||n>20) throw new Error("نمره باید بین ۰ تا ۲۰ باشد."); return n;}
+function num(v){if(v===""||v===null||v===undefined)return null; const n=Number(toEnDigits(v)); if(Number.isNaN(n)||n<0||n>20) throw new Error("نمره باید بین ۰ تا ۲۰ باشد."); return n;}
 function setPage(title,subtitle){$("#pageTitle").textContent=title;$("#pageSubtitle").textContent=subtitle||"";}
 function setLoading(){ $("#content").innerHTML='<div class="card empty">در حال دریافت اطلاعات…</div>'; }
 function table(headers,rows,empty="اطلاعاتی ثبت نشده است."){
@@ -69,6 +117,7 @@ function table(headers,rows,empty="اطلاعاتی ثبت نشده است."){
 
 document.addEventListener("DOMContentLoaded", init);
 async function init(){
+  setupPersianDigits();
   $("#schoolTitle").textContent=cfg.SCHOOL_NAME||"سامانه مدرسه";
   $("#todayText").textContent=new Intl.DateTimeFormat("fa-IR",{dateStyle:"long"}).format(new Date());
   $("#configWarning").classList.toggle("hidden",configured);
@@ -89,7 +138,7 @@ async function init(){
 
 async function login(e){
   e.preventDefault(); if(!configured)return toast("ابتدا config.js را تنظیم کنید.",true);
-  const nid=$("#loginNationalId").value.trim(), password=$("#loginPassword").value;
+  const nid=toEnDigits($("#loginNationalId").value.trim()), password=$("#loginPassword").value;
   if(!/^\d{10}$/.test(nid))return toast("کد ملی باید ۱۰ رقم باشد.",true);
   const {data,error}=await state.sb.auth.signInWithPassword({email:`${nid}@school.local`,password});
   if(error)return toast("نام کاربری یا رمز عبور نادرست است.",true);
@@ -107,13 +156,18 @@ async function enterApp(){
   $("#loginView").classList.add("hidden");$("#appView").classList.remove("hidden");
   $("#userName").textContent=data.full_name;$("#userRole").textContent=faRole[data.role];
   $("#avatar").textContent=(data.full_name||"ک").trim().charAt(0);
-  buildNav(); await refreshRefs(); navigate("dashboard");
+  await refreshRefs(); buildNav(); navigate("dashboard");
 }
 function buildNav(){
+  const studentMenu=[
+    ["dashboard","داشبورد"],["report","کارنامه من"],["homework","تکالیف"],
+    ["groups","گروه من"],["announcements","اطلاعیه‌ها"],["teachers","معلمان دروس"],["objections","اعتراضات من"]
+  ];
+  if(state.representatives.some(r=>r.student_id===state.profile.id)) studentMenu.splice(4,0,["discipline","ثبت انضباط"]);
   const menus={
-    manager:[["dashboard","داشبورد"],["users","کاربران"],["structure","پایه، کلاس و درس"],["assignments","تخصیص‌ها و نماینده"],["scores","ثبت و قفل نمرات"],["announcements","اطلاعیه‌ها"]],
-    teacher:[["dashboard","داشبورد"],["scores","ثبت نمرات"],["announcements","اطلاعیه‌ها"],["objections","اعتراضات"]],
-    student:[["dashboard","داشبورد"],["report","کارنامه من"],["announcements","اطلاعیه‌ها"],["teachers","معلمان دروس"],["objections","اعتراضات من"]]
+    manager:[["dashboard","داشبورد"],["users","کاربران"],["structure","پایه، کلاس و درس"],["assignments","تخصیص‌ها و نماینده"],["scores","ثبت و قفل نمرات"],["announcements","اطلاعیه‌ها"],["settings","تنظیمات سامانه"]],
+    teacher:[["dashboard","داشبورد"],["scores","ثبت نمرات"],["homework","تکالیف"],["groups","گروه‌های کلاسی"],["announcements","اطلاعیه‌ها"],["objections","اعتراضات"]],
+    student:studentMenu
   };
   $("#mainNav").innerHTML=menus[state.profile.role].map(([r,t])=>`<button class="nav-btn" data-route="${r}">${t}</button>`).join("");
   $("#mainNav").querySelectorAll("button").forEach(b=>b.onclick=()=>navigate(b.dataset.route));
@@ -163,6 +217,10 @@ async function navigate(route){
     if(route==="objections")return renderObjections();
     if(route==="report")return renderReport();
     if(route==="teachers")return renderTeachers();
+    if(route==="settings")return renderSettings();
+    if(route==="homework")return renderHomework();
+    if(route==="groups")return renderGroups();
+    if(route==="discipline")return renderDiscipline();
   }catch(e){$("#content").innerHTML=`<div class="alert alert-warning">${esc(errText(e))}</div>`;}
 }
 
@@ -209,7 +267,7 @@ function userModal(u=null){
   <label><span>نقش</span><select id="fRole"><option value="teacher" ${u?.role==="teacher"?"selected":""}>معلم</option><option value="student" ${u?.role==="student"?"selected":""}>دانش‌آموز</option></select></label>
   ${u?'<label><span>رمز جدید (اختیاری)</span><input id="fPassword" type="password" placeholder="خالی = بدون تغییر"></label>':""}
   </div>`,async()=>{
-    const payload={action:u?"update":"create",user_id:u?.id,national_id:$("#fNid").value.trim(),full_name:$("#fName").value.trim(),role:$("#fRole").value};
+    const payload={action:u?"update":"create",user_id:u?.id,national_id:toEnDigits($("#fNid").value.trim()),full_name:$("#fName").value.trim(),role:$("#fRole").value};
     if(u&&$("#fPassword").value)payload.password=$("#fPassword").value;
     await invokeFunction("admin-user",payload);
     toast("اطلاعات کاربر ذخیره شد.");await refreshRefs(true);renderUsers();
@@ -242,7 +300,7 @@ async function renderStructure(){
   document.querySelectorAll(".del-class").forEach(b=>b.onclick=()=>remove("classes",b.dataset.id));
   document.querySelectorAll(".del-subject").forEach(b=>b.onclick=()=>remove("subjects",b.dataset.id));
 }
-function gradeModal(g=null){modal(g?"ویرایش پایه":"پایه جدید",`<div class="form-grid"><label><span>عنوان پایه</span><input id="gTitle" value="${esc(g?.title||"")}"></label><label><span>ترتیب</span><input id="gSort" type="number" value="${g?.sort_order??0}"></label></div>`,async()=>{const payload={title:$("#gTitle").value.trim(),sort_order:Number($("#gSort").value||0)};const q=g?state.sb.from("grade_levels").update(payload).eq("id",g.id):state.sb.from("grade_levels").insert(payload);const {error}=await q;if(error)throw error;await refreshRefs(true);renderStructure();});}
+function gradeModal(g=null){modal(g?"ویرایش پایه":"پایه جدید",`<div class="form-grid"><label><span>عنوان پایه</span><input id="gTitle" value="${esc(g?.title||"")}"></label><label><span>ترتیب</span><input id="gSort" type="text" inputmode="decimal" value="${g?.sort_order??0}"></label></div>`,async()=>{const payload={title:$("#gTitle").value.trim(),sort_order:Number($("#gSort").value||0)};const q=g?state.sb.from("grade_levels").update(payload).eq("id",g.id):state.sb.from("grade_levels").insert(payload);const {error}=await q;if(error)throw error;await refreshRefs(true);renderStructure();});}
 function classModal(c=null){modal(c?"ویرایش کلاس":"کلاس جدید",`<div class="form-grid"><label><span>پایه</span><select id="cGrade">${state.grades.map(g=>`<option value="${g.id}" ${c?.grade_id===g.id?"selected":""}>${esc(g.title)}</option>`).join("")}</select></label><label><span>نام کلاس</span><input id="cTitle" value="${esc(c?.title||"")}"></label><label><span>سال تحصیلی</span><input id="cYear" value="${esc(c?.academic_year||"1405-1406")}"></label></div>`,async()=>{const payload={grade_id:$("#cGrade").value,title:$("#cTitle").value.trim(),academic_year:$("#cYear").value.trim()};const q=c?state.sb.from("classes").update(payload).eq("id",c.id):state.sb.from("classes").insert(payload);const {error}=await q;if(error)throw error;await refreshRefs(true);renderStructure();});}
 function subjectModal(s=null){modal(s?"ویرایش درس":"درس جدید",`<div class="form-grid"><label><span>پایه</span><select id="sGrade">${state.grades.map(g=>`<option value="${g.id}" ${s?.grade_id===g.id?"selected":""}>${esc(g.title)}</option>`).join("")}</select></label><label><span>نام درس</span><input id="sTitle" value="${esc(s?.title||"")}"></label></div>`,async()=>{const payload={grade_id:$("#sGrade").value,title:$("#sTitle").value.trim()};const q=s?state.sb.from("subjects").update(payload).eq("id",s.id):state.sb.from("subjects").insert(payload);const {error}=await q;if(error)throw error;await refreshRefs(true);renderStructure();});}
 async function remove(tbl,id){if(!confirm("این مورد حذف شود؟ داده‌های وابسته نیز ممکن است حذف شوند."))return;const {error}=await state.sb.from(tbl).delete().eq("id",id);if(error)return toast(errText(error),true);toast("حذف شد.");await refreshRefs(true);renderStructure();}
@@ -285,8 +343,8 @@ async function loadScoreGrid(){
   const {data:scores,error}=await state.sb.from("scores").select("*").eq("class_id",classId).eq("subject_id",subjectId).eq("period",period);
   if(error)throw error; const sm=new Map((scores||[]).map(s=>[s.student_id,s]));
   const rows=students.map(st=>{const s=sm.get(st.id)||{}; return `<tr data-student="${st.id}"><td>${esc(st.full_name)}</td>
-    <td><input class="score-input cont ${s.continuous_locked?"locked-input":""}" type="number" min="0" max="20" step=".25" value="${s.continuous_score??""}" ${s.continuous_locked?"disabled":""}></td>
-    <td><input class="score-input fin ${s.final_locked?"locked-input":""}" type="number" min="0" max="20" step=".25" value="${s.final_score??""}" ${s.final_locked?"disabled":""}></td>
+    <td><input class="score-input cont ${s.continuous_locked?"locked-input":""}" type="text" inputmode="decimal" min="0" max="20" step=".25" value="${s.continuous_score??""}" ${s.continuous_locked?"disabled":""}></td>
+    <td><input class="score-input fin ${s.final_locked?"locked-input":""}" type="text" inputmode="decimal" min="0" max="20" step=".25" value="${s.final_score??""}" ${s.final_locked?"disabled":""}></td>
     <td class="score-summary">${s.lesson_score??"-"}</td><td>${s.continuous_locked?'<span class="badge warn">تکوینی قفل</span>':""} ${s.final_locked?'<span class="badge warn">پایانی قفل</span>':""}</td></tr>`;});
   const lockButtons=state.profile.role==="manager"?
   `<button class="btn btn-ghost" id="lockBtn">قفل نمرات</button><button class="btn btn-ghost" id="unlockBtn">بازگشایی</button>`:
@@ -403,7 +461,7 @@ function resolveObjection(id,approve,score=null){
   if(approve){
     const o=undefined;
     modal("تأیید اعتراض و اصلاح نمره",`<div class="alert alert-info">پس از تأیید باید نمره اصلاح‌شده را ثبت کنید. اگر بخش مربوطه قفل باشد، ابتدا مدیر باید آن را بازگشایی کند.</div><br>
-    <label><span>نمره جدید</span><input id="newScore" type="number" min="0" max="20" step=".25"></label><label style="margin-top:12px"><span>توضیح (اختیاری)</span><textarea id="teacherResp"></textarea></label>`,async()=>{
+    <label><span>نمره جدید</span><input id="newScore" type="text" inputmode="decimal" min="0" max="20" step=".25"></label><label style="margin-top:12px"><span>توضیح (اختیاری)</span><textarea id="teacherResp"></textarea></label>`,async()=>{
       const {data:obj}=await state.sb.from("objections").select("*").eq("id",id).single();
       const newValue=num($("#newScore").value); if(newValue===null)throw new Error("نمره جدید الزامی است.");
       const current=score|| (await state.sb.from("scores").select("*").eq("id",obj.score_id).single()).data;
