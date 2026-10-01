@@ -103,9 +103,29 @@ Deno.serve(async (req) => {
 
     throw new Error("UNKNOWN_ACTION");
   } catch (error) {
-    return json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 400);
+    console.error("ADMIN_USER_ERROR", error);
+    return json({ ok: false, error: formatError(error) }, 400);
   }
 });
+
+function formatError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object") {
+    const e = error as Record<string, unknown>;
+    const parts = [
+      e.message,
+      e.error_description,
+      e.msg,
+      e.code,
+      e.status,
+      e.name,
+    ].filter(Boolean).map(String);
+    if (parts.length) return parts.join(" | ");
+    try { return JSON.stringify(error); } catch (_) {}
+  }
+  return String(error);
+}
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
