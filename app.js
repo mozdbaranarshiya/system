@@ -80,6 +80,70 @@ const state = {
   profiles:[], grades:[], classes:[], subjects:[], assignments:[], classStudents:[], representatives:[],
   refsLoadedAt:0, refsPromise:null, pageCache:new Map()
 };
+const externalScripts=new Map();
+function loadExternalScript(src,globalName){
+  if(globalName&&window[globalName])return Promise.resolve(window[globalName]);
+  if(externalScripts.has(src))return externalScripts.get(src);
+  const promise=new Promise((resolve,reject)=>{
+    const s=document.createElement("script");
+    s.src=src;s.async=true;
+    s.onload=()=>resolve(globalName?window[globalName]:true);
+    s.onerror=()=>reject(new Error("بارگذاری کتابخانه موردنیاز ناموفق بود."));
+    document.head.appendChild(s);
+  });
+  externalScripts.set(src,promise);
+  return promise;
+}
+async function uploadAssignmentFile(path,file,onProgress=()=>{}){
+  if(file.size<=6*1024*1024){
+    onProgress(.08);
+    const {error}=await state.sb.storage.from("assignment-files").upload(path,file,{
+      upsert:false,
+      cacheControl:"3600",
+      contentType:file.type||"application/octet-stream"
+    });
+    if(error)throw error;
+    onProgress(1);
+    return;
+  }
+
+  await loadExternalScript("https://cdn.jsdelivr.net/npm/tus-js-client@4.3.1/dist/tus.min.js","tus");
+  const {data:{session}}=await state.sb.auth.getSession();
+  if(!session?.access_token)throw new Error("نشست کاربری معتبر نیست.");
+
+  await new Promise((resolve,reject)=>{
+    const upload=new window.tus.Upload(file,{
+      endpoint:`${cfg.SUPABASE_URL.replace(/\/$/,"")}/storage/v1/upload/resumable`,
+      retryDelays:[0,1000,3000,5000],
+      headers:{
+        authorization:`Bearer ${session.access_token}`,
+        apikey:cfg.SUPABASE_ANON_KEY,
+        "x-upsert":"false"
+      },
+      uploadDataDuringCreation:true,
+      removeFingerprintOnSuccess:true,
+      chunkSize:6*1024*1024,
+      metadata:{
+        bucketName:"assignment-files",
+        objectName:path,
+        contentType:file.type||"application/octet-stream",
+        cacheControl:"3600"
+      },
+      onError:reject,
+      onProgress:(sent,total)=>onProgress(total?sent/total:0),
+      onSuccess:resolve
+    });
+    upload.findPreviousUploads().then(prev=>{
+      if(prev?.length)upload.resumeFromPreviousUpload(prev[0]);
+      upload.start();
+    }).catch(()=>upload.start());
+  });
+}
+async function ensureSheetJS(){
+  if(window.XLSX)return window.XLSX;
+  return loadExternalScript("https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js","XLSX");
+}
+
 
 function toast(message, error=false){
   const t=$("#toast"); t.textContent=message; t.className="toast show"+(error?" error":"");
