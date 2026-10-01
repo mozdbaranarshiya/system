@@ -341,3 +341,99 @@ dialog{max-height:92vh}
   .report-title{grid-template-columns:auto 1fr}.report-year{grid-column:1/-1;border-top:1px solid #e4e9e8;padding-top:8px}
   .report-meta{grid-template-columns:1fr}
 }
+
+
+/* ===== ارسال تکلیف دانش‌آموز - انتخاب دایره‌ای و ارسال دومرحله‌ای ===== */
+.submission-uploader{
+  display:grid;
+  justify-items:center;
+  gap:14px;
+  text-align:center;
+  padding:8px 4px 4px;
+}
+.submission-uploader>h3{margin:0;font-size:1.12rem}
+.submission-uploader>.muted{max-width:560px;line-height:1.9;margin:0}
+.upload-circle{
+  width:178px;
+  height:178px;
+  border-radius:50%;
+  border:2px dashed #91c9c1;
+  background:
+    radial-gradient(circle at 35% 28%,rgba(255,255,255,.95),transparent 38%),
+    linear-gradient(145deg,#effaf8,#e6f5f2);
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:5px;
+  color:#17675f;
+  cursor:pointer;
+  user-select:none;
+  box-shadow:0 13px 35px rgba(8,127,115,.10),inset 0 0 0 8px rgba(255,255,255,.45);
+  transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease,background .2s ease;
+  outline:none;
+}
+.upload-circle:hover,.upload-circle:focus-visible{
+  transform:translateY(-2px) scale(1.015);
+  border-color:var(--primary);
+  box-shadow:0 18px 42px rgba(8,127,115,.16),0 0 0 5px rgba(8,127,115,.08);
+}
+.upload-circle-icon{
+  width:52px;height:52px;border-radius:50%;
+  display:grid;place-items:center;
+  background:#fff;color:var(--primary);
+  font-size:1.6rem;font-weight:900;
+  box-shadow:0 8px 20px rgba(8,127,115,.12);
+}
+.upload-circle strong{font-size:.98rem}
+.upload-circle small{font-size:.68rem;color:#668985;padding:0 18px;line-height:1.6}
+.upload-circle.is-uploading{
+  border-style:solid;
+  border-color:#5aaea5;
+  background:linear-gradient(145deg,#eef8ff,#e8f7f5);
+}
+.upload-circle.is-uploading .upload-circle-icon{animation:uploadSpin 1s linear infinite}
+.upload-circle.is-uploaded{
+  border-style:solid;border-color:#31a178;
+  background:linear-gradient(145deg,#effbf5,#e5f8ef);
+  color:#176344;
+}
+.upload-circle.is-uploaded .upload-circle-icon{color:#168455;background:#fff}
+.upload-circle.is-error{
+  border-style:solid;border-color:#dc8279;
+  background:linear-gradient(145deg,#fff7f6,#fff0ee);
+  color:#9d342b;
+}
+.upload-circle.is-error .upload-circle-icon{color:#b42318}
+@keyframes uploadSpin{to{transform:rotate(360deg)}}
+
+.upload-file-info{
+  width:min(100%,520px);
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  min-height:43px;padding:9px 12px;
+  border:1px solid #e1ebe9;border-radius:12px;background:#fafdfc;
+  font-size:.79rem;color:#486562;
+}
+.upload-file-info #uploadFileName{
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;
+}
+.upload-file-info #uploadFileSize{white-space:nowrap;color:var(--muted)}
+.upload-progress-track{
+  width:min(100%,520px);height:7px;border-radius:99px;background:#e8efee;overflow:hidden;
+}
+.upload-progress-track>span{
+  display:block;height:100%;width:0;border-radius:inherit;
+  background:linear-gradient(90deg,var(--primary),#38ad9f);
+  transition:width .3s ease;
+}
+.upload-state{
+  min-height:24px;font-size:.78rem;color:var(--muted);
+}
+.upload-state.uploading{color:#356f86}
+.upload-state.success{color:#18794e;font-weight:700}
+.upload-state.error{color:var(--danger);font-weight:700}
+
+@media(max-width:600px){
+  .upload-circle{width:150px;height:150px}
+  .upload-circle-icon{width:45px;height:45px;font-size:1.35rem}
+}

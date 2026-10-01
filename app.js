@@ -160,9 +160,21 @@ async function enterApp(){
   if(error||!data?.active){await state.sb.auth.signOut();return toast("حساب کاربری فعال نیست.",true);}
   state.profile=data;
   $("#loginView").classList.add("hidden");$("#appView").classList.remove("hidden");
-  $("#userName").textContent=data.full_name;$("#userRole").textContent=faRole[data.role];
+  $("#userName").textContent=data.full_name;
   $("#avatar").textContent=(data.full_name||"ک").trim().charAt(0);
-  await refreshRefs(); buildNav(); navigate("dashboard");
+  await refreshRefs();
+  if(data.role==="student"){
+    const repClasses=state.representatives
+      .filter(r=>r.student_id===data.id)
+      .map(r=>byId(state.classes,r.class_id)?.title||className(r.class_id))
+      .filter(Boolean);
+    $("#userRole").textContent=repClasses.length
+      ? `نماینده کلاس (${repClasses.join("، ")})`
+      : faRole[data.role];
+  }else{
+    $("#userRole").textContent=faRole[data.role];
+  }
+  buildNav(); navigate("dashboard");
 }
 function buildNav(){
   const studentMenu=[
@@ -358,11 +370,11 @@ async function renderScores(){
   if(!asgs.length){$("#content").innerHTML='<div class="card empty">هیچ کلاس/درسی برای ثبت نمره در دسترس نیست.</div>';return;}
   const opts=asgs.map(a=>`<option value="${a.class_id}|${a.subject_id}">${esc(className(a.class_id))} — ${esc(subjectName(a.subject_id))}</option>`).join("");
   $("#content").innerHTML=`<div class="card"><div class="toolbar"><label><span>کلاس و درس</span><select id="scoreCourse">${opts}</select></label>
-  <label><span>دوره</span><input id="scorePeriod" value="نوبت اول"></label><button class="btn btn-primary" id="loadScores">نمایش دانش‌آموزان</button></div></div><div id="scoreArea"></div>`;
+  <label><span>دوره</span><select id="scorePeriod"><option value="نوبت اول">نوبت اول</option><option value="نوبت دوم">نوبت دوم</option></select></label><button class="btn btn-primary" id="loadScores">نمایش دانش‌آموزان</button></div></div><div id="scoreArea"></div>`;
   $("#loadScores").onclick=loadScoreGrid; await loadScoreGrid();
 }
 async function loadScoreGrid(){
-  const [classId,subjectId]=($("#scoreCourse").value||"|").split("|"), period=$("#scorePeriod").value.trim()||"نوبت اول";
+  const [classId,subjectId]=($("#scoreCourse").value||"|").split("|"), period=$("#scorePeriod").value||"نوبت اول";
   const memberships=state.classStudents.filter(x=>x.class_id===classId), ids=memberships.map(x=>x.student_id);
   const students=state.profiles.filter(p=>ids.includes(p.id)&&p.role==="student");
   const {data:scores,error}=await state.sb.from("scores").select("*").eq("class_id",classId).eq("subject_id",subjectId).eq("period",period);
@@ -726,23 +738,156 @@ async function renderStudentHomework(){
 }
 
 function openStudentSubmission(task,existing){
-  modal(existing?"ارسال مجدد تکلیف":"ارسال فایل تکلیف",`<div class="upload-zone">
-    <div class="upload-icon">↑</div><h3>${esc(task.title)}</h3><p>فایل خود را انتخاب کنید. حداکثر حجم مجاز ۲۰ مگابایت است.</p>
-    <input id="hwFile" type="file" required>
-  </div>`,async()=>{
-    const file=$("#hwFile").files?.[0]; if(!file)throw new Error("یک فایل انتخاب کنید.");
-    if(file.size>20*1024*1024)throw new Error("حجم فایل نباید بیشتر از ۲۰ مگابایت باشد.");
+  let uploaded=null;
+  let uploading=false;
+
+  modal(existing?"ارسال مجدد تکلیف":"ارسال تکلیف",`
+    <div class="submission-uploader">
+      <h3>${esc(task.title)}</h3>
+      <p class="muted">ابتدا فایل را از دایره زیر انتخاب کنید. پس از آپلود موفق، دکمه «ارسال تکلیف» فعال می‌شود.</p>
+
+      <input id="hwFile" class="upload-file-input" type="file" hidden>
+      <label for="hwFile" id="uploadCircle" class="upload-circle" tabindex="0">
+        <span class="upload-circle-icon" id="uploadCircleIcon">↑</span>
+        <strong id="uploadCircleTitle">انتخاب فایل</strong>
+        <small id="uploadCircleHint">برای انتخاب فایل کلیک کنید</small>
+      </label>
+
+      <div class="upload-file-info" id="uploadFileInfo">
+        <span id="uploadFileName">فایلی انتخاب نشده است</span>
+        <span id="uploadFileSize"></span>
+      </div>
+      <div class="upload-progress-track" aria-hidden="true"><span id="uploadProgressBar"></span></div>
+      <div id="uploadState" class="upload-state">حداکثر حجم فایل: ۲۰ مگابایت</div>
+    </div>`,async()=>{
+      if(uploading)throw new Error("آپلود فایل هنوز تمام نشده است.");
+      if(!uploaded)throw new Error("ابتدا فایل را آپلود کنید.");
+
+      const {error}=await state.sb.rpc("submit_assignment",{
+        p_assignment:task.id,
+        p_file_path:uploaded.path,
+        p_original_name:uploaded.name
+      });
+
+      if(error){
+        await state.sb.storage.from("assignment-files").remove([uploaded.path]);
+        uploaded=null;
+        setUploadState("error","ارسال ثبت نشد؛ فایل موقت حذف شد. دوباره تلاش کنید.");
+        $("#modalSubmit").disabled=true;
+        throw error;
+      }
+
+      if(existing?.file_path && existing.file_path!==uploaded.path){
+        await state.sb.storage.from("assignment-files").remove([existing.file_path]);
+      }
+      toast(existing?"تکلیف اصلاح‌شده ارسال شد.":"تکلیف با موفقیت ارسال شد.");
+      renderHomework();
+    },"ارسال تکلیف");
+
+  const submitBtn=$("#modalSubmit");
+  submitBtn.disabled=true;
+
+  const fileInput=$("#hwFile");
+  const circle=$("#uploadCircle");
+  const icon=$("#uploadCircleIcon");
+  const title=$("#uploadCircleTitle");
+  const hint=$("#uploadCircleHint");
+  const nameEl=$("#uploadFileName");
+  const sizeEl=$("#uploadFileSize");
+  const progress=$("#uploadProgressBar");
+  const stateEl=$("#uploadState");
+
+  function formatBytes(bytes){
+    if(bytes<1024)return `${bytes} بایت`;
+    if(bytes<1024*1024)return `${(bytes/1024).toFixed(1)} کیلوبایت`;
+    return `${(bytes/(1024*1024)).toFixed(1)} مگابایت`;
+  }
+
+  function setUploadState(mode,message){
+    circle.classList.remove("is-uploading","is-uploaded","is-error");
+    stateEl.className="upload-state";
+    if(mode==="uploading"){
+      circle.classList.add("is-uploading");
+      stateEl.classList.add("uploading");
+      icon.textContent="↻";
+      title.textContent="در حال آپلود";
+      hint.textContent="لطفاً منتظر بمانید";
+      progress.style.width="55%";
+    }else if(mode==="success"){
+      circle.classList.add("is-uploaded");
+      stateEl.classList.add("success");
+      icon.textContent="✓";
+      title.textContent="آپلود شد";
+      hint.textContent="برای تعویض فایل دوباره کلیک کنید";
+      progress.style.width="100%";
+    }else if(mode==="error"){
+      circle.classList.add("is-error");
+      stateEl.classList.add("error");
+      icon.textContent="!";
+      title.textContent="آپلود ناموفق";
+      hint.textContent="برای تلاش دوباره کلیک کنید";
+      progress.style.width="0%";
+    }else{
+      icon.textContent="↑";
+      title.textContent="انتخاب فایل";
+      hint.textContent="برای انتخاب فایل کلیک کنید";
+      progress.style.width="0%";
+    }
+    stateEl.textContent=message;
+  }
+
+  circle.addEventListener("keydown",e=>{
+    if(e.key==="Enter"||e.key===" "){e.preventDefault();fileInput.click();}
+  });
+
+  fileInput.onchange=async()=>{
+    const file=fileInput.files?.[0];
+    if(!file)return;
+
+    if(file.size>20*1024*1024){
+      fileInput.value="";
+      uploaded=null;
+      submitBtn.disabled=true;
+      nameEl.textContent="فایلی انتخاب نشده است";
+      sizeEl.textContent="";
+      setUploadState("error","حجم فایل نباید بیشتر از ۲۰ مگابایت باشد.");
+      return;
+    }
+
+    if(uploading)return;
+    uploading=true;
+    submitBtn.disabled=true;
+    nameEl.textContent=file.name;
+    sizeEl.textContent=formatBytes(file.size);
+    setUploadState("uploading","فایل در حال انتقال به سامانه است…");
+
+    if(uploaded?.path){
+      await state.sb.storage.from("assignment-files").remove([uploaded.path]);
+      uploaded=null;
+    }
+
     const clean=file.name.replace(/[^\p{L}\p{N}._-]+/gu,"_");
     const path=`${state.profile.id}/${task.id}/${Date.now()}-${clean}`;
-    const {error:upError}=await state.sb.storage.from("assignment-files").upload(path,file,{upsert:false});
-    if(upError)throw upError;
-    const {error}=await state.sb.rpc("submit_assignment",{p_assignment:task.id,p_file_path:path,p_original_name:file.name});
-    if(error){
-      await state.sb.storage.from("assignment-files").remove([path]);
-      throw error;
+
+    try{
+      const {error:upError}=await state.sb.storage
+        .from("assignment-files")
+        .upload(path,file,{upsert:false,cacheControl:"3600"});
+      if(upError)throw upError;
+
+      uploaded={path,name:file.name};
+      setUploadState("success","آپلود کامل شد. اکنون روی «ارسال تکلیف» بزنید.");
+      submitBtn.disabled=false;
+    }catch(e){
+      uploaded=null;
+      fileInput.value="";
+      submitBtn.disabled=true;
+      setUploadState("error",errText(e));
+      toast(errText(e),true);
+    }finally{
+      uploading=false;
     }
-    toast("فایل تکلیف ارسال شد.");renderHomework();
-  },"ارسال فایل");
+  };
 }
 
 async function openStoredFile(path){
