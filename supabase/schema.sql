@@ -316,3 +316,9 @@ grant execute on function public.current_role() to authenticated;
 grant execute on function public.is_manager() to authenticated;
 grant execute on function public.teacher_has_access(uuid,uuid) to authenticated;
 grant execute on function public.student_in_class(uuid) to authenticated;
+
+
+-- Edge Functions using the Supabase secret/service-role key access profiles
+-- through PostgREST, so table privileges are required in addition to BYPASSRLS.
+grant usage on schema public to service_role;
+grant select, insert, update, delete on table public.profiles to service_role;
