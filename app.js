@@ -433,18 +433,100 @@ function announcementModal(){
 }
 
 async function renderReport(){
-  setPage("کارنامه من","نمرات ثبت‌شده");
-  const {data,error}=await state.sb.from("scores").select("*").eq("student_id",state.profile.id).order("period");if(error)throw error;
-  const rows=(data||[]).map(s=>`<tr><td>${esc(subjectName(s.subject_id))}</td><td>${esc(s.period)}</td><td>${s.continuous_score??"-"}</td><td>${s.final_score??"-"}</td><td><strong>${s.lesson_score??"-"}</strong></td><td><button class="btn btn-ghost obj-btn" data-id="${s.id}" data-subject="${s.subject_id}">اعتراض</button></td></tr>`);
-  $("#content").innerHTML=`<div class="card">${table(["درس","دوره","تکوینی","پایانی","نمره درس",""],rows,"هنوز نمره‌ای ثبت نشده است.")}</div>`;
+  setPage("کارنامه من","کارنامه سال تحصیلی بر اساس الگوی رسمی");
+  const myClassLink=state.classStudents.find(x=>x.student_id===state.profile.id);
+  const myClass=myClassLink?byId(state.classes,myClassLink.class_id):null;
+  const grade=myClass?byId(state.grades,myClass.grade_id):null;
+
+  const [{data:scores,error:scoreError},{data:discipline},{data:settings}]=await Promise.all([
+    state.sb.from("scores").select("*").eq("student_id",state.profile.id).order("period"),
+    state.sb.from("discipline_scores").select("*").eq("student_id",state.profile.id),
+    state.sb.from("school_settings").select("*").eq("id",true).maybeSingle()
+  ]);
+  if(scoreError)throw scoreError;
+
+  const subjects=grade?state.subjects.filter(s=>s.grade_id===grade.id):[...new Set((scores||[]).map(s=>s.subject_id))].map(id=>byId(state.subjects,id)).filter(Boolean);
+  const scoreFor=(sid,needle)=>(scores||[]).find(s=>s.subject_id===sid&&String(s.period||"").includes(needle));
+  const values=[];
+
+  const rows=subjects.map((sub,i)=>{
+    const p1=scoreFor(sub.id,"اول")||{}, p2=scoreFor(sub.id,"دوم")||{};
+    const lesson1=p1.lesson_score==null?null:Number(p1.lesson_score);
+    const lesson2=p2.lesson_score==null?null:Number(p2.lesson_score);
+    const annual=lesson1!=null&&lesson2!=null?(lesson1+lesson2)/2:(lesson2??lesson1);
+    if(annual!=null)values.push(annual);
+    const status=annual==null?"-":annual>=10?"قبول":"نیاز به تلاش";
+    const objectionScore=p2.id||p1.id;
+    const objectionSubject=sub.id;
+    return `<tr>
+      <td>${i+1}</td><td class="subject-cell">${esc(sub.title)}</td>
+      <td>${p1.continuous_score??"-"}</td><td>${p1.final_score??"-"}</td>
+      <td>${p2.continuous_score??"-"}</td><td>${p2.final_score??"-"}</td>
+      <td class="annual-score">${annual==null?"-":annual.toFixed(2)}</td>
+      <td><span class="badge ${annual!=null&&annual<10?"warn":""}">${status}</span></td>
+      <td class="no-print">${objectionScore?`<button class="btn btn-ghost obj-btn" data-id="${objectionScore}" data-subject="${objectionSubject}" ${settings?.objections_open?"":"disabled"}>اعتراض</button>`:"-"}</td>
+    </tr>`;
+  }).join("");
+
+  const average=values.length?values.reduce((a,b)=>a+b,0)/values.length:null;
+  const disciplineScore=(discipline||[])[0]?.score;
+  const disciplineText=disciplineScore?disciplineLabels[disciplineScore]:"ثبت نشده";
+
+  $("#content").innerHTML=`
+    <div class="report-actions no-print">
+      <div class="alert ${settings?.objections_open?"alert-info":"alert-warning"}">
+        ${settings?.objections_open?"ثبت اعتراض توسط مدیر فعال است.":"ثبت اعتراض در حال حاضر توسط مدیر بسته است."}
+      </div>
+      <button class="btn btn-primary" id="printReport">چاپ کارنامه</button>
+    </div>
+    <section class="report-sheet">
+      <div class="report-title">
+        <div class="report-emblem">ا</div>
+        <div><h2>کارنامه تحصیلی دانش‌آموز</h2><p>سامانه آموزش و پرورش استان اصفهان</p></div>
+        <div class="report-year">سال تحصیلی<br><strong>${esc(myClass?.academic_year||"-")}</strong></div>
+      </div>
+      <div class="report-meta">
+        <span><b>نام دانش‌آموز:</b> ${esc(state.profile.full_name)}</span>
+        <span><b>کد ملی:</b> ${esc(state.profile.national_id)}</span>
+        <span><b>پایه:</b> ${esc(grade?.title||"-")}</span>
+        <span><b>کلاس:</b> ${esc(myClass?.title||"-")}</span>
+      </div>
+      <div class="table-wrap report-table-wrap">
+        <table class="report-table">
+          <thead>
+            <tr>
+              <th rowspan="2">ردیف</th><th rowspan="2">نام درس</th>
+              <th colspan="2">نوبت اول</th><th colspan="2">نوبت دوم</th>
+              <th rowspan="2">نمره سالانه</th><th rowspan="2">وضعیت</th><th rowspan="2" class="no-print">اعتراض</th>
+            </tr>
+            <tr><th>تکوینی</th><th>پایانی</th><th>تکوینی</th><th>پایانی</th></tr>
+          </thead>
+          <tbody>${rows||'<tr><td colspan="9" class="empty">هنوز نمره‌ای ثبت نشده است.</td></tr>'}</tbody>
+        </table>
+      </div>
+      <div class="report-summary">
+        <div><small>معدل</small><strong>${average==null?"-":average.toFixed(2)}</strong></div>
+        <div><small>انضباط</small><strong>${esc(disciplineText)}</strong></div>
+        <div><small>نتیجه</small><strong>${average==null?"-":average>=10?"قبول":"نیاز به تلاش"}</strong></div>
+      </div>
+      <div class="report-signatures"><span>امضای مدیر مدرسه</span><span>امضای ولی دانش‌آموز</span></div>
+    </section>`;
+
+  $("#printReport").onclick=()=>window.print();
   document.querySelectorAll(".obj-btn").forEach(b=>b.onclick=()=>studentObjectionModal(b.dataset.id,b.dataset.subject));
 }
-function studentObjectionModal(scoreId,subjectId){
+
+async function studentObjectionModal(scoreId,subjectId){
+  const {data:settings,error}=await state.sb.from("school_settings").select("objections_open").eq("id",true).single();
+  if(error)throw error;
+  if(!settings?.objections_open)return toast("ثبت اعتراض توسط مدیر بسته است.",true);
+
   modal("ثبت اعتراض",`<div class="form-grid"><label><span>درس</span><input value="${esc(subjectName(subjectId))}" disabled></label>
   <label><span>بخش نمره</span><select id="objComp"><option value="continuous">تکوینی</option><option value="final">پایانی</option></select></label>
   <label class="wide"><span>علت اعتراض</span><textarea id="objReason" required></textarea></label></div>`,async()=>{
     const reason=$("#objReason").value.trim();if(!reason)throw new Error("علت اعتراض را بنویسید.");
-    const {error}=await state.sb.from("objections").insert({score_id:scoreId,student_id:state.profile.id,component:$("#objComp").value,reason});if(error)throw error;toast("اعتراض ثبت شد.");
+    const {error}=await state.sb.from("objections").insert({score_id:scoreId,student_id:state.profile.id,component:$("#objComp").value,reason});
+    if(error)throw error;toast("اعتراض ثبت شد.");
   },"ارسال اعتراض");
 }
 
