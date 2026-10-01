@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#0f766e" />
+  <title>سامانه آموزش و پرورش استان اصفهان</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="toast" class="toast" aria-live="polite"></div>
+
+  <section id="loginView" class="login-shell">
+    <div class="brand-card">
+      <div class="brand-mark">ا</div>
+      <div>
+        <p class="eyebrow">به نام خدا</p>
+        <h1>سامانه آموزش و پرورش استان اصفهان</h1>
+        <p class="muted">مدیریت مدرسه، نمرات، اطلاعیه‌ها و اعتراضات در یک پنل یکپارچه</p>
+      </div>
+    </div>
+
+    <form id="loginForm" class="panel login-panel">
+      <div class="panel-head">
+        <div>
+          <h2>ورود به سامانه</h2>
+          <p class="muted">نام کاربری کد ملی شماست.</p>
+        </div>
+      </div>
+      <label>
+        <span>نام کاربری / کد ملی</span>
+        <input id="loginNationalId" inputmode="numeric" autocomplete="username" maxlength="10" required />
+      </label>
+      <label>
+        <span>رمز عبور</span>
+        <input id="loginPassword" type="password" autocomplete="current-password" required />
+      </label>
+      <button class="btn btn-primary" type="submit">ورود</button>
+      <p class="hint">امکان «فراموشی رمز» وجود ندارد؛ تغییر یا بازنشانی رمز فقط توسط مدیر مدرسه انجام می‌شود.</p>
+      <div id="configWarning" class="alert alert-warning hidden">
+        ابتدا مقادیر Supabase را در فایل <code>config.js</code> تنظیم کنید.
+      </div>
+    </form>
+  </section>
+
+  <section id="appView" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-mark small">ا</div>
+        <div>
+          <strong>آموزش و پرورش اصفهان</strong>
+          <small id="schoolTitle">سامانه مدرسه</small>
+        </div>
+      </div>
+      <div class="user-mini">
+        <div class="avatar" id="avatar">ک</div>
+        <div>
+          <strong id="userName">کاربر</strong>
+          <small id="userRole">-</small>
+        </div>
+      </div>
+      <nav id="mainNav"></nav>
+      <button id="logoutBtn" class="btn btn-ghost danger full">خروج از حساب</button>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button id="mobileMenuBtn" class="icon-btn" aria-label="نمایش منو">☰</button>
+        <div>
+          <h2 id="pageTitle">داشبورد</h2>
+          <p id="pageSubtitle" class="muted">خلاصه وضعیت سامانه</p>
+        </div>
+        <div class="topbar-meta">
+          <span id="todayText"></span>
+        </div>
+      </header>
+      <div id="content" class="content"></div>
+    </main>
+  </section>
+
+  <dialog id="modal">
+    <form method="dialog" class="modal-card" id="modalForm">
+      <div class="modal-head">
+        <h3 id="modalTitle">فرم</h3>
+        <button value="cancel" class="icon-btn" type="submit">×</button>
+      </div>
+      <div id="modalBody"></div>
+      <div class="modal-actions">
+        <button value="cancel" class="btn btn-ghost" type="submit">انصراف</button>
+        <button id="modalSubmit" class="btn btn-primary" type="button">ذخیره</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="./config.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
