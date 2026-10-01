@@ -117,6 +117,17 @@ Deno.serve(async (req) => {
     if (!callerProfile?.active) throw new Error("USER_INACTIVE");
     if (callerProfile.role !== "manager") throw new Error("MANAGER_ONLY");
 
+    // Manager operations require a second factor (TOTP / AAL2), not only
+    // possession of the password. The supplied JWT was already validated above.
+    const { data: aalData, error: aalError } =
+      await caller.auth.mfa.getAuthenticatorAssuranceLevel(token);
+    if (aalError) {
+      throw new Error(`MFA_CHECK_FAILED: ${formatError(aalError)}`);
+    }
+    if (aalData?.currentLevel !== "aal2") {
+      throw new Error("MFA_REQUIRED");
+    }
+
     const body = await req.json();
     const action = String(body.action || "");
 
@@ -124,6 +135,7 @@ Deno.serve(async (req) => {
       return json({
         ok: true,
         manager: true,
+        mfa_aal2: true,
         admin_client: true,
         key_mode: Deno.env.get("SUPABASE_SECRET_KEYS") ? "new-secret-key" : "legacy-service-role",
       });
