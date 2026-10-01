@@ -1266,6 +1266,236 @@ function leaderScoreModal(group,members,fields,entries){
   },"ثبت امتیازها");
 }
 
+async function renderExcelImport(){
+  setPage("ورود اطلاعات از اکسل","بارگذاری گروهی کلاس‌ها، دروس، دبیران، دانش‌آموزان و تخصیص‌ها");
+  $("#content").innerHTML=`<div class="grid-2 excel-import-grid">
+    <div class="card">
+      <div class="panel-head"><div><h3>فایل اکسل مدرسه</h3><p class="muted">ابتدا نمونه را دانلود و ستون‌ها را بدون تغییر نام تکمیل کنید.</p></div><button class="btn btn-ghost" id="downloadExcelSample">دانلود نمونه اکسل</button></div>
+      <label class="excel-drop" for="schoolExcelFile"><strong>انتخاب فایل Excel</strong><span>فرمت .xlsx</span><input id="schoolExcelFile" type="file" accept=".xlsx,.xls" hidden></label>
+      <div id="excelPreview" class="excel-preview muted">هنوز فایلی انتخاب نشده است.</div>
+      <button class="btn btn-primary full" id="startExcelImport" disabled>شروع ورود اطلاعات</button>
+    </div>
+    <div class="card"><h3>برگه‌های موردنیاز</h3><div class="excel-sheet-list">
+      <span>کلاس‌ها</span><span>دروس</span><span>دبیران</span><span>دانش‌آموزان</span><span>تخصیص دبیران</span>
+    </div><p class="muted">نام کاربری و رمز اولیه دبیر و دانش‌آموز همان کد ملی است. اگر پایه و کلاس دانش‌آموز درج شود، عضویت کلاس نیز خودکار ثبت می‌شود.</p></div>
+  </div>`;
+  let parsed=null;
+  $("#downloadExcelSample").onclick=downloadExcelTemplate;
+  $("#schoolExcelFile").onchange=async e=>{
+    const file=e.target.files?.[0];if(!file)return;
+    try{
+      $("#excelPreview").innerHTML='<span class="loading-dot">در حال خواندن فایل…</span>';
+      parsed=await readSchoolExcel(file);
+      const counts=Object.entries(parsed).map(([k,v])=>`${k}: ${toFaDigits(v.length)}`).join(" | ");
+      $("#excelPreview").innerHTML=`<strong>فایل آماده است.</strong><br>${esc(counts)}`;
+      $("#startExcelImport").disabled=false;
+    }catch(err){
+      parsed=null;$("#startExcelImport").disabled=true;$("#excelPreview").textContent=errText(err);toast(errText(err),true);
+    }
+  };
+  $("#startExcelImport").onclick=async()=>{
+    if(!parsed)return;
+    const btn=$("#startExcelImport"),preview=$("#excelPreview");
+    btn.disabled=true;
+    try{
+      await importSchoolExcel(parsed,msg=>preview.innerHTML=`<div class="excel-progress"><span class="spinner"></span>${esc(msg)}</div>`);
+      preview.innerHTML='<strong class="success-text">ورود اطلاعات با موفقیت انجام شد.</strong>';
+      toast("اطلاعات اکسل وارد سامانه شد.");
+    }catch(err){
+      preview.textContent=errText(err);toast(errText(err),true);
+    }finally{btn.disabled=false}
+  };
+}
+
+async function downloadExcelTemplate(){
+  const XLSX=await ensureSheetJS();
+  const wb=XLSX.utils.book_new();
+  const add=(name,rows)=>XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows,{skipHeader:false}),name);
+  add("کلاس‌ها",[
+    {"پایه":"هفتم","کلاس":"۷/۱","سال تحصیلی":"۱۴۰۵-۱۴۰۶"},
+    {"پایه":"هشتم","کلاس":"۸/۱","سال تحصیلی":"۱۴۰۵-۱۴۰۶"}
+  ]);
+  add("دروس",[
+    {"پایه":"هفتم","درس":"ریاضی"},
+    {"پایه":"هفتم","درس":"علوم"}
+  ]);
+  add("دبیران",[
+    {"نام و نام خانوادگی":"علی رضایی","کد ملی":"0012345678"}
+  ]);
+  add("دانش‌آموزان",[
+    {"نام و نام خانوادگی":"محمد احمدی","کد ملی":"0012345679","پایه":"هفتم","کلاس":"۷/۱","سال تحصیلی":"۱۴۰۵-۱۴۰۶"}
+  ]);
+  add("تخصیص دبیران",[
+    {"کد ملی دبیر":"0012345678","پایه":"هفتم","کلاس":"۷/۱","سال تحصیلی":"۱۴۰۵-۱۴۰۶","درس":"ریاضی"}
+  ]);
+  XLSX.writeFile(wb,"نمونه-ورود-اطلاعات-مدرسه-v6.xlsx",{compression:true});
+}
+
+function normalizeExcelText(v){return String(v??"").trim();}
+function excelValue(row,...keys){
+  for(const k of keys){
+    if(row[k]!==undefined&&row[k]!==null&&String(row[k]).trim()!=="")return normalizeExcelText(row[k]);
+  }
+  return "";
+}
+
+async function readSchoolExcel(file){
+  const XLSX=await ensureSheetJS();
+  const wb=XLSX.read(await file.arrayBuffer(),{type:"array",cellDates:false});
+  const read=names=>{
+    const name=names.find(n=>wb.SheetNames.includes(n));
+    if(!name)return [];
+    return XLSX.utils.sheet_to_json(wb.Sheets[name],{defval:"",raw:false});
+  };
+  const classes=read(["کلاس‌ها","Classes"]).map(r=>({
+    grade:excelValue(r,"پایه","grade","Grade"),
+    title:excelValue(r,"کلاس","class","Class"),
+    year:excelValue(r,"سال تحصیلی","year","Academic Year")||"۱۴۰۵-۱۴۰۶"
+  }));
+  const subjects=read(["دروس","Subjects"]).map(r=>({
+    grade:excelValue(r,"پایه","grade","Grade"),
+    title:excelValue(r,"درس","subject","Subject")
+  }));
+  const teachers=read(["دبیران","Teachers"]).map(r=>({
+    name:excelValue(r,"نام و نام خانوادگی","name","Full Name"),
+    nid:toEnDigits(excelValue(r,"کد ملی","national_id","National ID"))
+  }));
+  const students=read(["دانش‌آموزان","Students"]).map(r=>({
+    name:excelValue(r,"نام و نام خانوادگی","name","Full Name"),
+    nid:toEnDigits(excelValue(r,"کد ملی","national_id","National ID")),
+    grade:excelValue(r,"پایه","grade","Grade"),
+    classTitle:excelValue(r,"کلاس","class","Class"),
+    year:excelValue(r,"سال تحصیلی","year","Academic Year")||"۱۴۰۵-۱۴۰۶"
+  }));
+  const assignments=read(["تخصیص دبیران","TeacherAssignments","Assignments"]).map(r=>({
+    nid:toEnDigits(excelValue(r,"کد ملی دبیر","teacher_national_id","Teacher National ID")),
+    grade:excelValue(r,"پایه","grade","Grade"),
+    classTitle:excelValue(r,"کلاس","class","Class"),
+    year:excelValue(r,"سال تحصیلی","year","Academic Year")||"۱۴۰۵-۱۴۰۶",
+    subject:excelValue(r,"درس","subject","Subject")
+  }));
+  if(!classes.length&&!subjects.length&&!teachers.length&&!students.length&&!assignments.length)throw new Error("هیچ‌کدام از برگه‌های نمونه در فایل پیدا نشد.");
+  [...teachers,...students].forEach(u=>{
+    if(!u.name||!/^\d{10}$/.test(u.nid))throw new Error(`نام یا کد ملی نامعتبر در فایل: ${u.name||u.nid||"ردیف نامشخص"}`);
+  });
+  classes.forEach(x=>{if(!x.grade||!x.title)throw new Error("در برگه کلاس‌ها، پایه و کلاس الزامی است.")});
+  subjects.forEach(x=>{if(!x.grade||!x.title)throw new Error("در برگه دروس، پایه و درس الزامی است.")});
+  assignments.forEach(x=>{if(!/^\d{10}$/.test(x.nid)||!x.grade||!x.classTitle||!x.subject)throw new Error("یک ردیف تخصیص دبیر ناقص یا نامعتبر است.")});
+  return {"کلاس‌ها":classes,"دروس":subjects,"دبیران":teachers,"دانش‌آموزان":students,"تخصیص‌ها":assignments};
+}
+
+async function importSchoolExcel(data,onProgress=()=>{}){
+  const classes=data["کلاس‌ها"],subjects=data["دروس"],teachers=data["دبیران"],students=data["دانش‌آموزان"],assignments=data["تخصیص‌ها"];
+  const key=v=>normalizeExcelText(v).toLocaleLowerCase("fa");
+  const gradeTitles=[...new Set([...classes.map(x=>x.grade),...subjects.map(x=>x.grade),...students.map(x=>x.grade),...assignments.map(x=>x.grade)].filter(Boolean))];
+
+  onProgress("ثبت پایه‌ها…");
+  const existingGrades=new Set(state.grades.map(g=>key(g.title)));
+  const newGrades=gradeTitles.filter(x=>!existingGrades.has(key(x))).map((title,i)=>({title,sort_order:state.grades.length+i+1}));
+  if(newGrades.length){
+    const {error}=await state.sb.from("grade_levels").upsert(newGrades,{onConflict:"title",ignoreDuplicates:true});
+    if(error)throw error;
+  }
+  await refreshRefs(true);
+  let gradeMap=new Map(state.grades.map(g=>[key(g.title),g]));
+
+  onProgress("ثبت کلاس‌ها…");
+  const classPayload=[];const classSeen=new Set();
+  for(const x of [...classes,...students.filter(x=>x.grade&&x.classTitle),...assignments]){
+    const g=gradeMap.get(key(x.grade));if(!g)continue;
+    const year=toFaDigits(x.year||"۱۴۰۵-۱۴۰۶"),k=`${g.id}|${key(x.classTitle)}|${year}`;
+    if(!classSeen.has(k)){classSeen.add(k);classPayload.push({grade_id:g.id,title:x.classTitle,academic_year:year})}
+  }
+  if(classPayload.length){
+    const {error}=await state.sb.from("classes").upsert(classPayload,{onConflict:"grade_id,title,academic_year",ignoreDuplicates:true});
+    if(error)throw error;
+  }
+  await refreshRefs(true);
+  gradeMap=new Map(state.grades.map(g=>[key(g.title),g]));
+
+  onProgress("ثبت دروس…");
+  const subjectPayload=[];const subjectSeen=new Set();
+  for(const x of [...subjects,...assignments.map(a=>({grade:a.grade,title:a.subject}))]){
+    const g=gradeMap.get(key(x.grade));if(!g)continue;
+    const k=`${g.id}|${key(x.title)}`;
+    if(!subjectSeen.has(k)){subjectSeen.add(k);subjectPayload.push({grade_id:g.id,title:x.title})}
+  }
+  if(subjectPayload.length){
+    const {error}=await state.sb.from("subjects").upsert(subjectPayload,{onConflict:"grade_id,title",ignoreDuplicates:true});
+    if(error)throw error;
+  }
+
+  onProgress("ساخت حساب دبیران و دانش‌آموزان…");
+  await refreshRefs(true);
+  const people=[...teachers.map(x=>({...x,role:"teacher"})),...students.map(x=>({...x,role:"student"}))];
+  const byNid=new Map();
+  for(const p of people){
+    if(byNid.has(p.nid)&&byNid.get(p.nid).role!==p.role)throw new Error(`کد ملی ${p.nid} هم برای دبیر و هم دانش‌آموز آمده است.`);
+    byNid.set(p.nid,p);
+  }
+  const existing=new Map(state.profiles.map(p=>[toEnDigits(p.national_id),p]));
+  const jobs=[...byNid.values()];
+  for(let i=0;i<jobs.length;i+=6){
+    const batch=jobs.slice(i,i+6);
+    await Promise.all(batch.map(async p=>{
+      const old=existing.get(p.nid);
+      if(old){
+        if(old.full_name!==p.name||old.role!==p.role){
+          await invokeFunction("admin-user",{action:"update",user_id:old.id,national_id:p.nid,full_name:p.name,role:p.role});
+        }
+      }else{
+        await invokeFunction("admin-user",{action:"create",national_id:p.nid,full_name:p.name,role:p.role});
+      }
+    }));
+    onProgress(`ساخت کاربران… ${Math.min(i+6,jobs.length)} از ${jobs.length}`);
+  }
+  await refreshRefs(true);
+
+  const classMap=new Map(state.classes.map(cl=>{
+    const g=byId(state.grades,cl.grade_id);
+    return [`${key(g?.title)}|${key(cl.title)}|${toFaDigits(cl.academic_year)}`,cl];
+  }));
+  const subjectMap=new Map(state.subjects.map(s=>{
+    const g=byId(state.grades,s.grade_id);
+    return [`${key(g?.title)}|${key(s.title)}`,s];
+  }));
+  const profileMap=new Map(state.profiles.map(p=>[toEnDigits(p.national_id),p]));
+
+  onProgress("عضویت دانش‌آموزان در کلاس‌ها…");
+  const studentRows=[];
+  students.forEach(s=>{
+    if(!s.grade||!s.classTitle)return;
+    const cl=classMap.get(`${key(s.grade)}|${key(s.classTitle)}|${toFaDigits(s.year)}`);
+    const p=profileMap.get(s.nid);
+    if(!cl)throw new Error(`کلاس ${s.grade} / ${s.classTitle} برای ${s.name} پیدا نشد.`);
+    if(p)studentRows.push({class_id:cl.id,student_id:p.id});
+  });
+  if(studentRows.length){
+    const {error}=await state.sb.from("class_students").upsert(studentRows,{onConflict:"class_id,student_id",ignoreDuplicates:true});
+    if(error)throw error;
+  }
+
+  onProgress("تخصیص دبیران به دروس…");
+  const teacherRows=[];
+  assignments.forEach(a=>{
+    const p=profileMap.get(a.nid);
+    const cl=classMap.get(`${key(a.grade)}|${key(a.classTitle)}|${toFaDigits(a.year)}`);
+    const sub=subjectMap.get(`${key(a.grade)}|${key(a.subject)}`);
+    if(!p||p.role!=="teacher")throw new Error(`دبیر با کد ملی ${a.nid} پیدا نشد.`);
+    if(!cl)throw new Error(`کلاس تخصیص ${a.grade} / ${a.classTitle} پیدا نشد.`);
+    if(!sub)throw new Error(`درس ${a.subject} برای پایه ${a.grade} پیدا نشد.`);
+    teacherRows.push({teacher_id:p.id,class_id:cl.id,subject_id:sub.id});
+  });
+  if(teacherRows.length){
+    const {error}=await state.sb.from("teacher_assignments").upsert(teacherRows,{onConflict:"teacher_id,class_id,subject_id",ignoreDuplicates:true});
+    if(error)throw error;
+  }
+  state.refsLoadedAt=0;
+  state.pageCache.clear();
+  await refreshRefs(true);
+  onProgress("پایان؛ همه اطلاعات ثبت شد.");
+}
+
 function persianDateParts(date){
   const parts=new Intl.DateTimeFormat("en-US-u-ca-persian",{year:"numeric",month:"numeric",day:"numeric"}).formatToParts(date);
   const get=t=>Number(parts.find(p=>p.type===t)?.value);
