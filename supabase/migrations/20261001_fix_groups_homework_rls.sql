@@ -148,17 +148,8 @@ using(public.can_view_group_field(id));
 drop policy if exists group_fields_teacher_write on public.group_score_fields;
 create policy group_fields_teacher_write on public.group_score_fields
 for all to authenticated
-using(
-  public.is_manager()
-  or exists(
-    select 1 from public.student_groups g
-    where g.id=group_score_fields.group_id and g.teacher_id=auth.uid()
-  )
-)
-with check(
-  public.is_manager()
-  or public.can_manage_group(group_id)
-);
+using(public.can_manage_group(group_id))
+with check(public.can_manage_group(group_id));
 
 drop policy if exists group_entries_read on public.group_score_entries;
 create policy group_entries_read on public.group_score_entries
