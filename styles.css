@@ -169,6 +169,8 @@ textarea{line-height:1.9}
 .nav-btn[data-route="report"]::before{content:"▤"}
 .nav-btn[data-route="teachers"]::before{content:"آ"}
 .nav-btn[data-route="discipline"]::before{content:"★"}
+.nav-btn[data-route="homeworkGrades"]::before{content:"∑"}
+.nav-btn[data-route="excel"]::before{content:"X";font-size:.66rem}
 .nav-btn:hover,.nav-btn.active{background:linear-gradient(90deg,rgba(255,255,255,.12),rgba(255,255,255,.06));box-shadow:inset -3px 0 0 #6ee7d4}
 .nav-btn.active::before{background:#d9fff8;color:#07564f}
 
@@ -514,4 +516,70 @@ dialog{max-height:92vh}
   .topbar-logout{width:38px;height:38px;min-width:38px;border-radius:11px}
   .topbar-logout svg{width:19px;height:19px}
   .sidebar-version{margin-top:12px}
+}
+
+
+/* ===== امکانات نسخه ۶ ===== */
+.report-closed{
+  max-width:620px;
+  margin:40px auto;
+  text-align:center;
+  padding:38px 24px;
+  display:grid;
+  justify-items:center;
+  gap:10px;
+}
+.report-closed .setting-icon{width:62px;height:62px;font-size:1.6rem}
+.settings-status-card{display:grid;align-content:center;gap:12px}
+.settings-status-card h3{margin:0}
+
+.excel-import-grid{align-items:start}
+.excel-drop{
+  margin:22px 0 14px;
+  min-height:170px;
+  border:2px dashed #b8d8d4;
+  border-radius:18px;
+  background:linear-gradient(145deg,#f9fdfc,#eef8f6);
+  display:grid;
+  place-items:center;
+  align-content:center;
+  gap:6px;
+  cursor:pointer;
+  transition:.18s;
+}
+.excel-drop:hover{border-color:var(--primary);background:#eef9f7;transform:translateY(-1px)}
+.excel-drop strong{color:#175f58;font-size:1rem}
+.excel-drop span{color:var(--muted);font-size:.76rem}
+.excel-preview{
+  min-height:74px;
+  border:1px solid var(--border);
+  border-radius:13px;
+  padding:12px 14px;
+  margin-bottom:14px;
+  background:#fbfdfd;
+  line-height:1.9;
+}
+.excel-sheet-list{display:flex;gap:8px;flex-wrap:wrap;margin:15px 0}
+.excel-sheet-list span{
+  border:1px solid #d7e7e4;
+  background:#f4faf8;
+  border-radius:999px;
+  padding:7px 11px;
+  font-size:.78rem;
+  color:#315f5a;
+}
+.excel-progress{display:flex;align-items:center;gap:9px;color:#376d67;font-weight:700}
+.spinner{
+  width:18px;height:18px;border:2px solid #cfe2df;border-top-color:var(--primary);border-radius:50%;
+  animation:uploadSpin .8s linear infinite;display:inline-block
+}
+.success-text{color:#18794e}
+
+.archive-score-check{
+  width:18px!important;height:18px!important;min-height:auto!important;
+  accent-color:var(--primary)
+}
+
+@media(max-width:900px){
+  .excel-import-grid{grid-template-columns:1fr}
 }
