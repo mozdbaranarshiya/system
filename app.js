@@ -10,6 +10,54 @@ const esc = (v="") => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<"
 const faRole = {manager:"مدیر مدرسه", teacher:"معلم", student:"دانش‌آموز"};
 const faStatus = {pending:"در انتظار",approved:"تأیید شده",rejected:"رد شده"};
 const faComponent = {continuous:"تکوینی",final:"پایانی"};
+const disciplineLabels={1:"عالی",2:"خیلی خوب",3:"خوب",4:"قابل قبول",5:"نیاز به تلاش"};
+const toFaDigits=(v="")=>String(v)
+  .replace(/[0-9]/g,d=>"۰۱۲۳۴۵۶۷۸۹"[d])
+  .replace(/[٠-٩]/g,d=>"۰۱۲۳۴۵۶۷۸۹"["٠١٢٣٤٥٦٧٨٩".indexOf(d)]);
+const toEnDigits=(v="")=>String(v)
+  .replace(/[۰-۹]/g,d=>"0123456789"["۰۱۲۳۴۵۶۷۸۹".indexOf(d)])
+  .replace(/[٠-٩]/g,d=>"0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)]);
+const faDateTime=(v)=>v?new Intl.DateTimeFormat("fa-IR-u-ca-persian",{dateStyle:"medium",timeStyle:"short"}).format(new Date(v)):"-";
+
+function persianizeNode(root){
+  if(!root)return;
+  const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);
+  const nodes=[];
+  while(walker.nextNode())nodes.push(walker.currentNode);
+  nodes.forEach(n=>{
+    if(n.parentElement?.closest("script,style"))return;
+    const next=toFaDigits(n.nodeValue);
+    if(next!==n.nodeValue)n.nodeValue=next;
+  });
+  if(root.querySelectorAll){
+    root.querySelectorAll("input,textarea").forEach(inp=>{
+      if(["password","file","hidden","checkbox","radio"].includes(inp.type))return;
+      const next=toFaDigits(inp.value);
+      if(next!==inp.value)inp.value=next;
+    });
+  }
+}
+function setupPersianDigits(){
+  document.addEventListener("input",e=>{
+    const el=e.target;
+    if(!(el instanceof HTMLInputElement||el instanceof HTMLTextAreaElement))return;
+    if(["password","file","hidden","checkbox","radio"].includes(el.type))return;
+    const pos=el.selectionStart, next=toFaDigits(el.value);
+    if(next!==el.value){
+      el.value=next;
+      try{el.setSelectionRange(pos,pos)}catch(_){}
+    }
+  },true);
+  const observer=new MutationObserver(items=>{
+    items.forEach(m=>m.addedNodes.forEach(n=>{
+      if(n.nodeType===Node.TEXT_NODE){
+        const next=toFaDigits(n.nodeValue); if(next!==n.nodeValue)n.nodeValue=next;
+      }else if(n.nodeType===Node.ELEMENT_NODE)persianizeNode(n);
+    }));
+  });
+  observer.observe(document.body,{childList:true,subtree:true});
+  persianizeNode(document.body);
+}
 const state = {
   sb: configured ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null,
   session:null, profile:null, route:"dashboard",
@@ -26,7 +74,13 @@ function errText(e){
   const map={ACCESS_DENIED:"دسترسی مجاز نیست.",CONTINUOUS_LOCKED:"نمره تکوینی قفل است.",FINAL_LOCKED:"نمره پایانی قفل است.",
     MANAGER_ONLY:"این عملیات فقط برای مدیر مجاز است.",INVALID_NATIONAL_ID:"کد ملی باید ۱۰ رقم باشد.",
     USER_INACTIVE:"حساب مدیر غیرفعال است.",
-    CANNOT_DELETE_SELF:"مدیر نمی‌تواند حساب خودش را حذف کند."};
+    CANNOT_DELETE_SELF:"مدیر نمی‌تواند حساب خودش را حذف کند.",
+    DEADLINE_PASSED:"مهلت تحویل این تکلیف به پایان رسیده است.",
+    ALREADY_GRADED:"برای این تکلیف نمره نهایی ثبت شده است.",
+    FEEDBACK_REQUIRED:"برای وضعیت «نیاز به اصلاح» توضیح دبیر الزامی است.",
+    INVALID_FILE_PATH:"مسیر فایل معتبر نیست.",
+    INVALID_SCORE:"نمره واردشده معتبر نیست.",
+    INVALID_STATUS:"وضعیت انتخاب‌شده معتبر نیست."};
   return map[m]||m;
 }
 async function invokeFunction(name, body){
@@ -59,7 +113,7 @@ function modal(title, body, onSubmit, submitText="ذخیره"){
   };
   $("#modal").showModal();
 }
-function num(v){if(v===""||v===null||v===undefined)return null; const n=Number(v); if(Number.isNaN(n)||n<0||n>20) throw new Error("نمره باید بین ۰ تا ۲۰ باشد."); return n;}
+function num(v){if(v===""||v===null||v===undefined)return null; const n=Number(toEnDigits(v)); if(Number.isNaN(n)||n<0||n>20) throw new Error("نمره باید بین ۰ تا ۲۰ باشد."); return n;}
 function setPage(title,subtitle){$("#pageTitle").textContent=title;$("#pageSubtitle").textContent=subtitle||"";}
 function setLoading(){ $("#content").innerHTML='<div class="card empty">در حال دریافت اطلاعات…</div>'; }
 function table(headers,rows,empty="اطلاعاتی ثبت نشده است."){
@@ -69,6 +123,7 @@ function table(headers,rows,empty="اطلاعاتی ثبت نشده است."){
 
 document.addEventListener("DOMContentLoaded", init);
 async function init(){
+  setupPersianDigits();
   $("#schoolTitle").textContent=cfg.SCHOOL_NAME||"سامانه مدرسه";
   $("#todayText").textContent=new Intl.DateTimeFormat("fa-IR",{dateStyle:"long"}).format(new Date());
   $("#configWarning").classList.toggle("hidden",configured);
@@ -89,7 +144,7 @@ async function init(){
 
 async function login(e){
   e.preventDefault(); if(!configured)return toast("ابتدا config.js را تنظیم کنید.",true);
-  const nid=$("#loginNationalId").value.trim(), password=$("#loginPassword").value;
+  const nid=toEnDigits($("#loginNationalId").value.trim()), password=$("#loginPassword").value;
   if(!/^\d{10}$/.test(nid))return toast("کد ملی باید ۱۰ رقم باشد.",true);
   const {data,error}=await state.sb.auth.signInWithPassword({email:`${nid}@school.local`,password});
   if(error)return toast("نام کاربری یا رمز عبور نادرست است.",true);
@@ -107,13 +162,18 @@ async function enterApp(){
   $("#loginView").classList.add("hidden");$("#appView").classList.remove("hidden");
   $("#userName").textContent=data.full_name;$("#userRole").textContent=faRole[data.role];
   $("#avatar").textContent=(data.full_name||"ک").trim().charAt(0);
-  buildNav(); await refreshRefs(); navigate("dashboard");
+  await refreshRefs(); buildNav(); navigate("dashboard");
 }
 function buildNav(){
+  const studentMenu=[
+    ["dashboard","داشبورد"],["report","کارنامه من"],["homework","تکالیف"],
+    ["groups","گروه من"],["announcements","اطلاعیه‌ها"],["teachers","معلمان دروس"],["objections","اعتراضات من"]
+  ];
+  if(state.representatives.some(r=>r.student_id===state.profile.id)) studentMenu.splice(4,0,["discipline","ثبت انضباط"]);
   const menus={
-    manager:[["dashboard","داشبورد"],["users","کاربران"],["structure","پایه، کلاس و درس"],["assignments","تخصیص‌ها و نماینده"],["scores","ثبت و قفل نمرات"],["announcements","اطلاعیه‌ها"]],
-    teacher:[["dashboard","داشبورد"],["scores","ثبت نمرات"],["announcements","اطلاعیه‌ها"],["objections","اعتراضات"]],
-    student:[["dashboard","داشبورد"],["report","کارنامه من"],["announcements","اطلاعیه‌ها"],["teachers","معلمان دروس"],["objections","اعتراضات من"]]
+    manager:[["dashboard","داشبورد"],["users","کاربران"],["structure","پایه، کلاس و درس"],["assignments","تخصیص‌ها و نماینده"],["scores","ثبت و قفل نمرات"],["announcements","اطلاعیه‌ها"],["settings","تنظیمات سامانه"]],
+    teacher:[["dashboard","داشبورد"],["scores","ثبت نمرات"],["homework","تکالیف"],["groups","گروه‌های کلاسی"],["announcements","اطلاعیه‌ها"],["objections","اعتراضات"]],
+    student:studentMenu
   };
   $("#mainNav").innerHTML=menus[state.profile.role].map(([r,t])=>`<button class="nav-btn" data-route="${r}">${t}</button>`).join("");
   $("#mainNav").querySelectorAll("button").forEach(b=>b.onclick=()=>navigate(b.dataset.route));
@@ -163,6 +223,10 @@ async function navigate(route){
     if(route==="objections")return renderObjections();
     if(route==="report")return renderReport();
     if(route==="teachers")return renderTeachers();
+    if(route==="settings")return renderSettings();
+    if(route==="homework")return renderHomework();
+    if(route==="groups")return renderGroups();
+    if(route==="discipline")return renderDiscipline();
   }catch(e){$("#content").innerHTML=`<div class="alert alert-warning">${esc(errText(e))}</div>`;}
 }
 
@@ -209,7 +273,7 @@ function userModal(u=null){
   <label><span>نقش</span><select id="fRole"><option value="teacher" ${u?.role==="teacher"?"selected":""}>معلم</option><option value="student" ${u?.role==="student"?"selected":""}>دانش‌آموز</option></select></label>
   ${u?'<label><span>رمز جدید (اختیاری)</span><input id="fPassword" type="password" placeholder="خالی = بدون تغییر"></label>':""}
   </div>`,async()=>{
-    const payload={action:u?"update":"create",user_id:u?.id,national_id:$("#fNid").value.trim(),full_name:$("#fName").value.trim(),role:$("#fRole").value};
+    const payload={action:u?"update":"create",user_id:u?.id,national_id:toEnDigits($("#fNid").value.trim()),full_name:$("#fName").value.trim(),role:$("#fRole").value};
     if(u&&$("#fPassword").value)payload.password=$("#fPassword").value;
     await invokeFunction("admin-user",payload);
     toast("اطلاعات کاربر ذخیره شد.");await refreshRefs(true);renderUsers();
@@ -242,7 +306,7 @@ async function renderStructure(){
   document.querySelectorAll(".del-class").forEach(b=>b.onclick=()=>remove("classes",b.dataset.id));
   document.querySelectorAll(".del-subject").forEach(b=>b.onclick=()=>remove("subjects",b.dataset.id));
 }
-function gradeModal(g=null){modal(g?"ویرایش پایه":"پایه جدید",`<div class="form-grid"><label><span>عنوان پایه</span><input id="gTitle" value="${esc(g?.title||"")}"></label><label><span>ترتیب</span><input id="gSort" type="number" value="${g?.sort_order??0}"></label></div>`,async()=>{const payload={title:$("#gTitle").value.trim(),sort_order:Number($("#gSort").value||0)};const q=g?state.sb.from("grade_levels").update(payload).eq("id",g.id):state.sb.from("grade_levels").insert(payload);const {error}=await q;if(error)throw error;await refreshRefs(true);renderStructure();});}
+function gradeModal(g=null){modal(g?"ویرایش پایه":"پایه جدید",`<div class="form-grid"><label><span>عنوان پایه</span><input id="gTitle" value="${esc(g?.title||"")}"></label><label><span>ترتیب</span><input id="gSort" type="text" inputmode="decimal" value="${g?.sort_order??0}"></label></div>`,async()=>{const payload={title:$("#gTitle").value.trim(),sort_order:Number(toEnDigits($("#gSort").value||0))};const q=g?state.sb.from("grade_levels").update(payload).eq("id",g.id):state.sb.from("grade_levels").insert(payload);const {error}=await q;if(error)throw error;await refreshRefs(true);renderStructure();});}
 function classModal(c=null){modal(c?"ویرایش کلاس":"کلاس جدید",`<div class="form-grid"><label><span>پایه</span><select id="cGrade">${state.grades.map(g=>`<option value="${g.id}" ${c?.grade_id===g.id?"selected":""}>${esc(g.title)}</option>`).join("")}</select></label><label><span>نام کلاس</span><input id="cTitle" value="${esc(c?.title||"")}"></label><label><span>سال تحصیلی</span><input id="cYear" value="${esc(c?.academic_year||"1405-1406")}"></label></div>`,async()=>{const payload={grade_id:$("#cGrade").value,title:$("#cTitle").value.trim(),academic_year:$("#cYear").value.trim()};const q=c?state.sb.from("classes").update(payload).eq("id",c.id):state.sb.from("classes").insert(payload);const {error}=await q;if(error)throw error;await refreshRefs(true);renderStructure();});}
 function subjectModal(s=null){modal(s?"ویرایش درس":"درس جدید",`<div class="form-grid"><label><span>پایه</span><select id="sGrade">${state.grades.map(g=>`<option value="${g.id}" ${s?.grade_id===g.id?"selected":""}>${esc(g.title)}</option>`).join("")}</select></label><label><span>نام درس</span><input id="sTitle" value="${esc(s?.title||"")}"></label></div>`,async()=>{const payload={grade_id:$("#sGrade").value,title:$("#sTitle").value.trim()};const q=s?state.sb.from("subjects").update(payload).eq("id",s.id):state.sb.from("subjects").insert(payload);const {error}=await q;if(error)throw error;await refreshRefs(true);renderStructure();});}
 async function remove(tbl,id){if(!confirm("این مورد حذف شود؟ داده‌های وابسته نیز ممکن است حذف شوند."))return;const {error}=await state.sb.from(tbl).delete().eq("id",id);if(error)return toast(errText(error),true);toast("حذف شد.");await refreshRefs(true);renderStructure();}
@@ -259,7 +323,26 @@ async function renderAssignments(){
   <div class="card"><div class="panel-head"><h3>دانش‌آموزان کلاس</h3><button class="btn btn-primary" id="addCs">+ عضویت</button></div>${table(["دانش‌آموز","کلاس",""],csr)}</div>
   <div class="card"><div class="panel-head"><h3>نماینده کلاس</h3><button class="btn btn-primary" id="addRep">+ نماینده</button></div>${table(["کلاس","نماینده",""],rr)}</div></div>`;
   $("#addAsg").onclick=()=>modal("تخصیص معلم",`<div class="form-grid"><label><span>معلم</span><select id="aTeacher">${teachers.map(x=>`<option value="${x.id}">${esc(x.full_name)}</option>`).join("")}</select></label><label><span>کلاس</span><select id="aClass">${state.classes.map(x=>`<option value="${x.id}">${esc(className(x.id))}</option>`).join("")}</select></label><label><span>درس</span><select id="aSubject">${state.subjects.map(x=>`<option value="${x.id}">${esc(x.title)}</option>`).join("")}</select></label></div>`,async()=>{const {error}=await state.sb.from("teacher_assignments").insert({teacher_id:$("#aTeacher").value,class_id:$("#aClass").value,subject_id:$("#aSubject").value});if(error)throw error;await refreshRefs(true);renderAssignments();});
-  $("#addCs").onclick=()=>modal("افزودن دانش‌آموز به کلاس",`<div class="form-grid"><label><span>دانش‌آموز</span><select id="csStudent">${students.map(x=>`<option value="${x.id}">${esc(x.full_name)}</option>`).join("")}</select></label><label><span>کلاس</span><select id="csClass">${state.classes.map(x=>`<option value="${x.id}">${esc(className(x.id))}</option>`).join("")}</select></label></div>`,async()=>{const {error}=await state.sb.from("class_students").insert({student_id:$("#csStudent").value,class_id:$("#csClass").value});if(error)throw error;await refreshRefs(true);renderAssignments();});
+  $("#addCs").onclick=()=>modal("افزودن گروهی دانش‌آموزان به کلاس",`
+    <div class="form-grid">
+      <label class="wide"><span>کلاس مقصد</span><select id="csClass">${state.classes.map(x=>`<option value="${x.id}">${esc(className(x.id))}</option>`).join("")}</select></label>
+      <div class="wide">
+        <div class="selection-head"><strong>انتخاب دانش‌آموزان</strong><button type="button" class="btn btn-ghost btn-sm" id="selectAllStudents">انتخاب همه</button></div>
+        <div class="check-grid" id="studentChecks">
+          ${students.map(x=>`<label class="check-card"><input type="checkbox" value="${x.id}"><span><b>${esc(x.full_name)}</b><small>${esc(x.national_id)}</small></span></label>`).join("")}
+        </div>
+      </div>
+    </div>`,async()=>{
+      const selected=[...document.querySelectorAll("#studentChecks input:checked")].map(x=>x.value);
+      if(!selected.length)throw new Error("حداقل یک دانش‌آموز را انتخاب کنید.");
+      const classId=$("#csClass").value;
+      const rows=selected.map(student_id=>({class_id:classId,student_id}));
+      const {error}=await state.sb.from("class_students").upsert(rows,{onConflict:"class_id,student_id",ignoreDuplicates:true});
+      if(error)throw error;
+      toast(`${selected.length} دانش‌آموز به کلاس اضافه شد.`);
+      await refreshRefs(true);renderAssignments();
+    });
+    setTimeout(()=>{const b=$("#selectAllStudents");if(b)b.onclick=()=>document.querySelectorAll("#studentChecks input").forEach(x=>x.checked=true)},0);
   $("#addRep").onclick=()=>modal("ثبت نماینده کلاس",`<div class="form-grid"><label><span>کلاس</span><select id="rClass">${state.classes.map(x=>`<option value="${x.id}">${esc(className(x.id))}</option>`).join("")}</select></label><label><span>دانش‌آموز</span><select id="rStudent">${students.map(x=>`<option value="${x.id}">${esc(x.full_name)}</option>`).join("")}</select></label></div>`,async()=>{const {error}=await state.sb.from("class_representatives").upsert({class_id:$("#rClass").value,student_id:$("#rStudent").value});if(error)throw error;await refreshRefs(true);renderAssignments();});
   document.querySelectorAll(".del-asg").forEach(b=>b.onclick=async()=>{await state.sb.from("teacher_assignments").delete().eq("id",b.dataset.id);await refreshRefs(true);renderAssignments();});
   document.querySelectorAll(".del-cs").forEach(b=>b.onclick=async()=>{await state.sb.from("class_students").delete().eq("class_id",b.dataset.c).eq("student_id",b.dataset.s);await refreshRefs(true);renderAssignments();});
@@ -285,8 +368,8 @@ async function loadScoreGrid(){
   const {data:scores,error}=await state.sb.from("scores").select("*").eq("class_id",classId).eq("subject_id",subjectId).eq("period",period);
   if(error)throw error; const sm=new Map((scores||[]).map(s=>[s.student_id,s]));
   const rows=students.map(st=>{const s=sm.get(st.id)||{}; return `<tr data-student="${st.id}"><td>${esc(st.full_name)}</td>
-    <td><input class="score-input cont ${s.continuous_locked?"locked-input":""}" type="number" min="0" max="20" step=".25" value="${s.continuous_score??""}" ${s.continuous_locked?"disabled":""}></td>
-    <td><input class="score-input fin ${s.final_locked?"locked-input":""}" type="number" min="0" max="20" step=".25" value="${s.final_score??""}" ${s.final_locked?"disabled":""}></td>
+    <td><input class="score-input cont ${s.continuous_locked?"locked-input":""}" type="text" inputmode="decimal" min="0" max="20" step=".25" value="${s.continuous_score??""}" ${s.continuous_locked?"disabled":""}></td>
+    <td><input class="score-input fin ${s.final_locked?"locked-input":""}" type="text" inputmode="decimal" min="0" max="20" step=".25" value="${s.final_score??""}" ${s.final_locked?"disabled":""}></td>
     <td class="score-summary">${s.lesson_score??"-"}</td><td>${s.continuous_locked?'<span class="badge warn">تکوینی قفل</span>':""} ${s.final_locked?'<span class="badge warn">پایانی قفل</span>':""}</td></tr>`;});
   const lockButtons=state.profile.role==="manager"?
   `<button class="btn btn-ghost" id="lockBtn">قفل نمرات</button><button class="btn btn-ghost" id="unlockBtn">بازگشایی</button>`:
@@ -294,7 +377,7 @@ async function loadScoreGrid(){
   $("#scoreArea").innerHTML=`<div class="card"><div class="panel-head"><div><h3>${esc(className(classId))} — ${esc(subjectName(subjectId))}</h3><p class="muted">فرمول: (تکوینی + پایانی) ÷ ۲</p></div>
   <div class="actions"><button class="btn btn-primary" id="saveScores">ثبت نمرات</button>${lockButtons}</div></div><br>
   ${table(["دانش‌آموز","تکوینی","پایانی","نمره درس","وضعیت"],rows,"دانش‌آموزی در این کلاس ثبت نشده است.")}</div>`;
-  document.querySelectorAll("#scoreArea tbody input").forEach(inp=>inp.addEventListener("input",e=>{const tr=e.target.closest("tr"),a=tr.querySelector(".cont").value,b=tr.querySelector(".fin").value;tr.querySelector(".score-summary").textContent=(a!==""&&b!=="")?((Number(a)+Number(b))/2).toFixed(2):"-";}));
+  document.querySelectorAll("#scoreArea tbody input").forEach(inp=>inp.addEventListener("input",e=>{const tr=e.target.closest("tr"),a=tr.querySelector(".cont").value,b=tr.querySelector(".fin").value;tr.querySelector(".score-summary").textContent=(a!==""&&b!=="")?((Number(toEnDigits(a))+Number(toEnDigits(b)))/2).toFixed(2):"-";}));
   $("#saveScores").onclick=()=>saveScores(classId,subjectId,period);
   if($("#finalizeBtn"))$("#finalizeBtn").onclick=()=>chooseLock(classId,subjectId,period,true,false);
   if($("#lockBtn"))$("#lockBtn").onclick=()=>chooseLock(classId,subjectId,period,true,true);
@@ -356,19 +439,480 @@ function announcementModal(){
 }
 
 async function renderReport(){
-  setPage("کارنامه من","نمرات ثبت‌شده");
-  const {data,error}=await state.sb.from("scores").select("*").eq("student_id",state.profile.id).order("period");if(error)throw error;
-  const rows=(data||[]).map(s=>`<tr><td>${esc(subjectName(s.subject_id))}</td><td>${esc(s.period)}</td><td>${s.continuous_score??"-"}</td><td>${s.final_score??"-"}</td><td><strong>${s.lesson_score??"-"}</strong></td><td><button class="btn btn-ghost obj-btn" data-id="${s.id}" data-subject="${s.subject_id}">اعتراض</button></td></tr>`);
-  $("#content").innerHTML=`<div class="card">${table(["درس","دوره","تکوینی","پایانی","نمره درس",""],rows,"هنوز نمره‌ای ثبت نشده است.")}</div>`;
+  setPage("کارنامه من","کارنامه سال تحصیلی بر اساس الگوی رسمی");
+  const myClassLink=state.classStudents.find(x=>x.student_id===state.profile.id);
+  const myClass=myClassLink?byId(state.classes,myClassLink.class_id):null;
+  const grade=myClass?byId(state.grades,myClass.grade_id):null;
+
+  const [{data:scores,error:scoreError},{data:discipline},{data:settings}]=await Promise.all([
+    state.sb.from("scores").select("*").eq("student_id",state.profile.id).order("period"),
+    state.sb.from("discipline_scores").select("*").eq("student_id",state.profile.id),
+    state.sb.from("school_settings").select("*").eq("id",true).maybeSingle()
+  ]);
+  if(scoreError)throw scoreError;
+
+  const subjects=grade?state.subjects.filter(s=>s.grade_id===grade.id):[...new Set((scores||[]).map(s=>s.subject_id))].map(id=>byId(state.subjects,id)).filter(Boolean);
+  const scoreFor=(sid,needle)=>(scores||[]).find(s=>s.subject_id===sid&&String(s.period||"").includes(needle));
+  const values=[];
+
+  const rows=subjects.map((sub,i)=>{
+    const p1=scoreFor(sub.id,"اول")||{}, p2=scoreFor(sub.id,"دوم")||{};
+    const lesson1=p1.lesson_score==null?null:Number(p1.lesson_score);
+    const lesson2=p2.lesson_score==null?null:Number(p2.lesson_score);
+    const annual=lesson1!=null&&lesson2!=null?(lesson1+lesson2)/2:(lesson2??lesson1);
+    if(annual!=null)values.push(annual);
+    const status=annual==null?"-":annual>=10?"قبول":"نیاز به تلاش";
+    const objectionScore=p2.id||p1.id;
+    const objectionSubject=sub.id;
+    return `<tr>
+      <td>${i+1}</td><td class="subject-cell">${esc(sub.title)}</td>
+      <td>${p1.continuous_score??"-"}</td><td>${p1.final_score??"-"}</td>
+      <td>${p2.continuous_score??"-"}</td><td>${p2.final_score??"-"}</td>
+      <td class="annual-score">${annual==null?"-":annual.toFixed(2)}</td>
+      <td><span class="badge ${annual!=null&&annual<10?"warn":""}">${status}</span></td>
+      <td class="no-print">${objectionScore?`<button class="btn btn-ghost obj-btn" data-id="${objectionScore}" data-subject="${objectionSubject}" ${settings?.objections_open?"":"disabled"}>اعتراض</button>`:"-"}</td>
+    </tr>`;
+  }).join("");
+
+  const average=values.length?values.reduce((a,b)=>a+b,0)/values.length:null;
+  const disciplineScore=(discipline||[])[0]?.score;
+  const disciplineText=disciplineScore?disciplineLabels[disciplineScore]:"ثبت نشده";
+
+  $("#content").innerHTML=`
+    <div class="report-actions no-print">
+      <div class="alert ${settings?.objections_open?"alert-info":"alert-warning"}">
+        ${settings?.objections_open?"ثبت اعتراض توسط مدیر فعال است.":"ثبت اعتراض در حال حاضر توسط مدیر بسته است."}
+      </div>
+      <button class="btn btn-primary" id="printReport">چاپ کارنامه</button>
+    </div>
+    <section class="report-sheet">
+      <div class="report-title">
+        <div class="report-emblem">ا</div>
+        <div><h2>کارنامه تحصیلی دانش‌آموز</h2><p>سامانه آموزش و پرورش استان اصفهان</p></div>
+        <div class="report-year">سال تحصیلی<br><strong>${esc(myClass?.academic_year||"-")}</strong></div>
+      </div>
+      <div class="report-meta">
+        <span><b>نام دانش‌آموز:</b> ${esc(state.profile.full_name)}</span>
+        <span><b>کد ملی:</b> ${esc(state.profile.national_id)}</span>
+        <span><b>پایه:</b> ${esc(grade?.title||"-")}</span>
+        <span><b>کلاس:</b> ${esc(myClass?.title||"-")}</span>
+      </div>
+      <div class="table-wrap report-table-wrap">
+        <table class="report-table">
+          <thead>
+            <tr>
+              <th rowspan="2">ردیف</th><th rowspan="2">نام درس</th>
+              <th colspan="2">نوبت اول</th><th colspan="2">نوبت دوم</th>
+              <th rowspan="2">نمره سالانه</th><th rowspan="2">وضعیت</th><th rowspan="2" class="no-print">اعتراض</th>
+            </tr>
+            <tr><th>تکوینی</th><th>پایانی</th><th>تکوینی</th><th>پایانی</th></tr>
+          </thead>
+          <tbody>${rows||'<tr><td colspan="9" class="empty">هنوز نمره‌ای ثبت نشده است.</td></tr>'}</tbody>
+        </table>
+      </div>
+      <div class="report-summary">
+        <div><small>معدل</small><strong>${average==null?"-":average.toFixed(2)}</strong></div>
+        <div><small>انضباط</small><strong>${esc(disciplineText)}</strong></div>
+        <div><small>نتیجه</small><strong>${average==null?"-":average>=10?"قبول":"نیاز به تلاش"}</strong></div>
+      </div>
+      <div class="report-signatures"><span>امضای مدیر مدرسه</span><span>امضای ولی دانش‌آموز</span></div>
+    </section>`;
+
+  $("#printReport").onclick=()=>window.print();
   document.querySelectorAll(".obj-btn").forEach(b=>b.onclick=()=>studentObjectionModal(b.dataset.id,b.dataset.subject));
 }
-function studentObjectionModal(scoreId,subjectId){
+
+async function studentObjectionModal(scoreId,subjectId){
+  const {data:settings,error}=await state.sb.from("school_settings").select("objections_open").eq("id",true).single();
+  if(error)throw error;
+  if(!settings?.objections_open)return toast("ثبت اعتراض توسط مدیر بسته است.",true);
+
   modal("ثبت اعتراض",`<div class="form-grid"><label><span>درس</span><input value="${esc(subjectName(subjectId))}" disabled></label>
   <label><span>بخش نمره</span><select id="objComp"><option value="continuous">تکوینی</option><option value="final">پایانی</option></select></label>
   <label class="wide"><span>علت اعتراض</span><textarea id="objReason" required></textarea></label></div>`,async()=>{
     const reason=$("#objReason").value.trim();if(!reason)throw new Error("علت اعتراض را بنویسید.");
-    const {error}=await state.sb.from("objections").insert({score_id:scoreId,student_id:state.profile.id,component:$("#objComp").value,reason});if(error)throw error;toast("اعتراض ثبت شد.");
+    const {error}=await state.sb.from("objections").insert({score_id:scoreId,student_id:state.profile.id,component:$("#objComp").value,reason});
+    if(error)throw error;toast("اعتراض ثبت شد.");
   },"ارسال اعتراض");
+}
+
+
+async function renderSettings(){
+  setPage("تنظیمات سامانه","کنترل امکانات عمومی برای دانش‌آموزان");
+  const {data,error}=await state.sb.from("school_settings").select("*").eq("id",true).single();
+  if(error)throw error;
+  $("#content").innerHTML=`
+    <div class="settings-grid">
+      <div class="card setting-card">
+        <div>
+          <span class="setting-icon">!</span>
+          <div><h3>ثبت اعتراض به نمره</h3><p class="muted">وقتی بسته باشد، دانش‌آموز امکان ارسال اعتراض جدید ندارد.</p></div>
+        </div>
+        <label class="switch"><input id="objectionSwitch" type="checkbox" ${data.objections_open?"checked":""}><span></span></label>
+      </div>
+      <div class="card">
+        <div class="panel-head"><div><h3>وضعیت فعلی</h3><p class="muted">تغییر وضعیت بلافاصله برای همه دانش‌آموزان اعمال می‌شود.</p></div>
+        <span class="badge ${data.objections_open?"":"warn"}">${data.objections_open?"اعتراض فعال":"اعتراض بسته"}</span></div>
+      </div>
+    </div>`;
+  $("#objectionSwitch").onchange=async e=>{
+    const objections_open=e.target.checked;
+    const {error}=await state.sb.from("school_settings").update({
+      objections_open,updated_at:new Date().toISOString(),updated_by:state.profile.id
+    }).eq("id",true);
+    if(error){e.target.checked=!objections_open;return toast(errText(error),true)}
+    toast(objections_open?"ثبت اعتراض فعال شد.":"ثبت اعتراض بسته شد.");
+    renderSettings();
+  };
+}
+
+async function renderDiscipline(){
+  setPage("ثبت انضباط","ویژه نماینده کلاس؛ ۱ عالی تا ۵ نیاز به تلاش");
+  const myReps=state.representatives.filter(r=>r.student_id===state.profile.id);
+  if(!myReps.length){
+    $("#content").innerHTML='<div class="card empty">شما به عنوان نماینده هیچ کلاسی ثبت نشده‌اید.</div>';
+    return;
+  }
+  const classIds=myReps.map(r=>r.class_id);
+  const {data:existing,error}=await state.sb.from("discipline_scores").select("*").in("class_id",classIds);
+  if(error)throw error;
+  const scoreMap=new Map((existing||[]).map(x=>[`${x.class_id}|${x.student_id}`,x]));
+  const cards=myReps.map(rep=>{
+    const students=state.classStudents.filter(x=>x.class_id===rep.class_id).map(x=>byId(state.profiles,x.student_id)).filter(Boolean);
+    const rows=students.map(st=>{
+      const old=scoreMap.get(`${rep.class_id}|${st.id}`);
+      return `<tr data-class="${rep.class_id}" data-student="${st.id}"><td>${esc(st.full_name)}</td>
+        <td><input class="discipline-input" inputmode="numeric" maxlength="1" value="${old?.score??""}" placeholder="۱ تا ۵"></td>
+        <td class="discipline-label">${old?.score?disciplineLabels[old.score]:"-"}</td>
+        <td><input class="discipline-note" value="${esc(old?.note||"")}" placeholder="توضیح اختیاری"></td></tr>`;
+    }).join("");
+    return `<div class="card discipline-card"><div class="panel-head"><div><h3>${esc(className(rep.class_id))}</h3><p class="muted">عدد انضباط را برای هر دانش‌آموز وارد کنید.</p></div><button class="btn btn-primary save-discipline" data-class="${rep.class_id}">ذخیره انضباط</button></div>
+      <div class="discipline-legend">${Object.entries(disciplineLabels).map(([n,t])=>`<span><b>${n}</b> ${t}</span>`).join("")}</div>
+      <div class="table-wrap"><table><thead><tr><th>دانش‌آموز</th><th>عدد</th><th>وضعیت</th><th>توضیح</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  }).join("");
+  $("#content").innerHTML=cards;
+  document.querySelectorAll(".discipline-input").forEach(inp=>inp.addEventListener("input",()=>{
+    const n=Number(toEnDigits(inp.value)); inp.closest("tr").querySelector(".discipline-label").textContent=disciplineLabels[n]||"-";
+  }));
+  document.querySelectorAll(".save-discipline").forEach(btn=>btn.onclick=async()=>{
+    const classId=btn.dataset.class;
+    const rows=[...document.querySelectorAll(`tr[data-class="${classId}"]`)];
+    const payload=[];
+    for(const tr of rows){
+      const raw=toEnDigits(tr.querySelector(".discipline-input").value.trim());
+      if(!raw)continue;
+      const score=Number(raw);
+      if(!Number.isInteger(score)||score<1||score>5)throw new Error("نمره انضباط باید عددی بین ۱ تا ۵ باشد.");
+      payload.push({class_id:classId,student_id:tr.dataset.student,score,note:tr.querySelector(".discipline-note").value.trim()||null,updated_by:state.profile.id,updated_at:new Date().toISOString()});
+    }
+    if(!payload.length)return toast("حداقل یک نمره انضباط وارد کنید.",true);
+    const {error}=await state.sb.from("discipline_scores").upsert(payload,{onConflict:"class_id,student_id"});
+    if(error)return toast(errText(error),true);
+    toast("نمرات انضباط ذخیره شد.");
+  });
+}
+
+function homeworkStatusBadge(status){
+  const map={pending:["در انتظار بررسی","info"],graded:["نمره ثبت شده",""],needs_revision:["نیاز به اصلاح","warn"]};
+  const [text,cls]=map[status]||["ارسال نشده",""];
+  return `<span class="badge ${cls}">${text}</span>`;
+}
+
+async function renderHomework(){
+  setPage("تکالیف",state.profile.role==="teacher"?"تعریف تکلیف، فایل‌های ارسالی و ارزیابی":"مشاهده تکالیف و ارسال فایل");
+  if(state.profile.role==="teacher")return renderTeacherHomework();
+  if(state.profile.role==="student")return renderStudentHomework();
+  $("#content").innerHTML='<div class="card empty">این بخش برای معلم و دانش‌آموز است.</div>';
+}
+
+async function renderTeacherHomework(){
+  const [{data:tasks,error},{data:groups}]=await Promise.all([
+    state.sb.from("assignments").select("*").order("created_at",{ascending:false}),
+    state.sb.from("student_groups").select("*").order("name")
+  ]);
+  if(error)throw error;
+  const ids=(tasks||[]).map(x=>x.id);
+  let submissions=[];
+  if(ids.length){
+    const r=await state.sb.from("assignment_submissions").select("*").in("assignment_id",ids).order("submitted_at",{ascending:false});
+    if(r.error)throw r.error; submissions=r.data||[];
+  }
+  const cards=(tasks||[]).map(t=>{
+    const group=t.group_id?(groups||[]).find(g=>g.id===t.group_id):null;
+    const subs=submissions.filter(s=>s.assignment_id===t.id);
+    return `<article class="homework-card">
+      <div class="homework-top"><div><span class="badge info">${group?"گروهی":"کلاسی"}</span><h3>${esc(t.title)}</h3><p>${esc(t.description||"بدون توضیح")}</p></div>
+      <div class="deadline-box"><small>مهلت</small><strong>${faDateTime(t.due_at)}</strong></div></div>
+      <div class="homework-meta"><span>${esc(className(t.class_id))}</span><span>${esc(subjectName(t.subject_id))}</span>${group?`<span>گروه: ${esc(group.name)}</span>`:""}<span>ارسال‌ها: ${subs.length}</span></div>
+      <div class="actions"><button class="btn btn-primary show-submissions" data-id="${t.id}">مشاهده ارسال‌ها</button><button class="btn btn-ghost del-homework" data-id="${t.id}">حذف تکلیف</button></div>
+    </article>`;
+  }).join("");
+  $("#content").innerHTML=`<div class="panel-head page-actions"><div><h3>تکالیف تعریف‌شده</h3><p class="muted">تکلیف برای کل کلاس یا یک گروه خاص قابل ثبت است.</p></div><button class="btn btn-primary" id="newHomework">+ تکلیف جدید</button></div>
+    <div class="homework-grid">${cards||'<div class="card empty">هنوز تکلیفی ثبت نشده است.</div>'}</div>`;
+  $("#newHomework").onclick=openHomeworkModal;
+  document.querySelectorAll(".show-submissions").forEach(b=>b.onclick=()=>showHomeworkSubmissions(b.dataset.id));
+  document.querySelectorAll(".del-homework").forEach(b=>b.onclick=async()=>{
+    if(!confirm("این تکلیف و ارسال‌های وابسته حذف شود؟"))return;
+    const {error}=await state.sb.from("assignments").delete().eq("id",b.dataset.id);
+    if(error)return toast(errText(error),true); toast("تکلیف حذف شد.");renderHomework();
+  });
+}
+
+async function openHomeworkModal(){
+  const teaching=state.assignments.filter(a=>a.teacher_id===state.profile.id);
+  if(!teaching.length)return toast("ابتدا باید کلاس و درس توسط مدیر به شما تخصیص داده شود.",true);
+  const {data:groups,error}=await state.sb.from("student_groups").select("*").eq("teacher_id",state.profile.id).order("name");
+  if(error)throw error;
+  const defaultCourse=`${teaching[0].class_id}|${teaching[0].subject_id}`;
+  modal("تکلیف جدید",`<div class="form-grid">
+    <label><span>کلاس و درس</span><select id="hwCourse">${teaching.map(a=>`<option value="${a.class_id}|${a.subject_id}">${esc(className(a.class_id))} — ${esc(subjectName(a.subject_id))}</option>`).join("")}</select></label>
+    <label><span>نوع تکلیف</span><select id="hwTarget"><option value="class">کل کلاس</option><option value="group">یک گروه</option></select></label>
+    <label id="hwGroupWrap" class="wide hidden"><span>گروه</span><select id="hwGroup"></select></label>
+    <label class="wide"><span>عنوان تکلیف</span><input id="hwTitle" required></label>
+    <label class="wide"><span>توضیحات</span><textarea id="hwDescription"></textarea></label>
+    <div class="wide"><span class="field-title">مهلت تحویل (تقویم شمسی)</span><div id="duePicker" class="jalali-picker"></div><input id="hwDueIso" type="hidden"></div>
+  </div>`,async()=>{
+    const [class_id,subject_id]=$("#hwCourse").value.split("|");
+    const group_id=$("#hwTarget").value==="group"?$("#hwGroup").value:null;
+    if($("#hwTarget").value==="group"&&!group_id)throw new Error("گروه را انتخاب کنید.");
+    const title=$("#hwTitle").value.trim(), due_at=$("#hwDueIso").value;
+    if(!title||!due_at)throw new Error("عنوان و مهلت تکلیف الزامی است.");
+    const {error}=await state.sb.from("assignments").insert({
+      teacher_id:state.profile.id,class_id,subject_id,group_id,title,
+      description:$("#hwDescription").value.trim()||null,due_at
+    });
+    if(error)throw error; toast("تکلیف ثبت شد.");renderHomework();
+  },"ثبت تکلیف");
+  const refreshGroups=()=>{
+    const [c,s]=$("#hwCourse").value.split("|");
+    const list=(groups||[]).filter(g=>g.class_id===c&&g.subject_id===s);
+    $("#hwGroup").innerHTML=list.map(g=>`<option value="${g.id}">${esc(g.name)}</option>`).join("");
+    if($("#hwTarget").value==="group"&&!list.length)toast("برای این کلاس و درس هنوز گروهی ساخته نشده است.",true);
+  };
+  $("#hwCourse").onchange=refreshGroups;
+  $("#hwTarget").onchange=()=>{$("#hwGroupWrap").classList.toggle("hidden",$("#hwTarget").value!=="group");refreshGroups()};
+  refreshGroups();
+  mountJalaliPicker("duePicker","hwDueIso",new Date(Date.now()+24*60*60*1000));
+}
+
+async function renderStudentHomework(){
+  const [{data:tasks,error},{data:subs}]=await Promise.all([
+    state.sb.from("assignments").select("*").order("due_at",{ascending:true}),
+    state.sb.from("assignment_submissions").select("*").eq("student_id",state.profile.id)
+  ]);
+  if(error)throw error;
+  const subMap=new Map((subs||[]).map(s=>[s.assignment_id,s]));
+  const cards=(tasks||[]).map(t=>{
+    const sub=subMap.get(t.id);
+    const late=new Date()>new Date(t.due_at);
+    const canSend=!sub? !late : sub.status==="needs_revision" || (sub.status==="pending"&&!late);
+    return `<article class="homework-card student-homework">
+      <div class="homework-top"><div><h3>${esc(t.title)}</h3><p>${esc(t.description||"بدون توضیح")}</p></div><div class="deadline-box ${late?"late":""}"><small>مهلت</small><strong>${faDateTime(t.due_at)}</strong></div></div>
+      <div class="homework-meta"><span>${esc(className(t.class_id))}</span><span>${esc(subjectName(t.subject_id))}</span><span>${homeworkStatusBadge(sub?.status)}</span></div>
+      ${sub?.feedback?`<div class="feedback-box"><b>بازخورد دبیر:</b> ${esc(sub.feedback)}</div>`:""}
+      ${sub?.status==="graded"?`<div class="assignment-score">نمره: <strong>${sub.score}/۲۰</strong></div>`:""}
+      <div class="actions">${canSend?`<button class="btn btn-primary submit-homework" data-id="${t.id}">${sub?"ارسال مجدد":"ارسال فایل"}</button>`:""}
+      ${sub?`<button class="btn btn-ghost open-file" data-path="${esc(sub.file_path)}">مشاهده فایل ارسالی</button>`:""}</div>
+      ${late&&!sub?'<small class="danger">مهلت تحویل به پایان رسیده است.</small>':""}
+    </article>`;
+  }).join("");
+  $("#content").innerHTML=`<div class="homework-grid">${cards||'<div class="card empty">تکلیفی برای شما ثبت نشده است.</div>'}</div>`;
+  document.querySelectorAll(".submit-homework").forEach(b=>b.onclick=()=>{
+    const task=(tasks||[]).find(x=>x.id===b.dataset.id); openStudentSubmission(task,subMap.get(task.id));
+  });
+  document.querySelectorAll(".open-file").forEach(b=>b.onclick=()=>openStoredFile(b.dataset.path));
+}
+
+function openStudentSubmission(task,existing){
+  modal(existing?"ارسال مجدد تکلیف":"ارسال فایل تکلیف",`<div class="upload-zone">
+    <div class="upload-icon">↑</div><h3>${esc(task.title)}</h3><p>فایل خود را انتخاب کنید. حداکثر حجم مجاز ۲۰ مگابایت است.</p>
+    <input id="hwFile" type="file" required>
+  </div>`,async()=>{
+    const file=$("#hwFile").files?.[0]; if(!file)throw new Error("یک فایل انتخاب کنید.");
+    if(file.size>20*1024*1024)throw new Error("حجم فایل نباید بیشتر از ۲۰ مگابایت باشد.");
+    const clean=file.name.replace(/[^\p{L}\p{N}._-]+/gu,"_");
+    const path=`${state.profile.id}/${task.id}/${Date.now()}-${clean}`;
+    const {error:upError}=await state.sb.storage.from("assignment-files").upload(path,file,{upsert:false});
+    if(upError)throw upError;
+    const {error}=await state.sb.rpc("submit_assignment",{p_assignment:task.id,p_file_path:path,p_original_name:file.name});
+    if(error){
+      await state.sb.storage.from("assignment-files").remove([path]);
+      throw error;
+    }
+    toast("فایل تکلیف ارسال شد.");renderHomework();
+  },"ارسال فایل");
+}
+
+async function openStoredFile(path){
+  const {data,error}=await state.sb.storage.from("assignment-files").createSignedUrl(path,120);
+  if(error)return toast(errText(error),true);
+  window.open(data.signedUrl,"_blank","noopener");
+}
+
+async function showHomeworkSubmissions(assignmentId){
+  const {data,error}=await state.sb.from("assignment_submissions").select("*").eq("assignment_id",assignmentId).order("submitted_at",{ascending:false});
+  if(error)throw error;
+  const rows=(data||[]).map(s=>`<tr><td>${esc(userName(s.student_id))}</td><td>${faDateTime(s.submitted_at)}</td><td>${homeworkStatusBadge(s.status)}</td><td>${s.score??"-"}</td>
+    <td><div class="actions"><button type="button" class="btn btn-ghost modal-open-file" data-path="${esc(s.file_path)}">فایل</button><button type="button" class="btn btn-primary modal-review" data-id="${s.id}">ارزیابی</button></div></td></tr>`).join("");
+  modal("ارسال‌های دانش‌آموزان",`<div class="table-wrap"><table><thead><tr><th>دانش‌آموز</th><th>زمان ارسال</th><th>وضعیت</th><th>نمره</th><th>عملیات</th></tr></thead><tbody>${rows||'<tr><td colspan="5" class="empty">هنوز فایلی ارسال نشده است.</td></tr>'}</tbody></table></div>`,async()=>$("#modal").close(),"بستن");
+  $("#modalSubmit").textContent="بستن";
+  document.querySelectorAll(".modal-open-file").forEach(b=>b.onclick=()=>openStoredFile(b.dataset.path));
+  document.querySelectorAll(".modal-review").forEach(b=>b.onclick=()=>{
+    const s=(data||[]).find(x=>x.id===b.dataset.id);$("#modal").close();reviewSubmissionModal(s);
+  });
+}
+
+function reviewSubmissionModal(sub){
+  modal("ارزیابی تکلیف",`<div class="form-grid">
+    <label><span>وضعیت</span><select id="reviewStatus"><option value="graded">ثبت نمره</option><option value="needs_revision">نیاز به اصلاح</option></select></label>
+    <label><span>نمره از ۲۰</span><input id="reviewScore" inputmode="decimal" value="${sub.score??""}" placeholder="۰ تا ۲۰"></label>
+    <label class="wide"><span>بازخورد / علت نیاز به اصلاح</span><textarea id="reviewFeedback">${esc(sub.feedback||"")}</textarea></label>
+  </div>`,async()=>{
+    const status=$("#reviewStatus").value;
+    const score=status==="graded"?num($("#reviewScore").value):null;
+    if(status==="graded"&&(score===null||score<0||score>20))throw new Error("نمره باید بین ۰ تا ۲۰ باشد.");
+    const {error}=await state.sb.rpc("review_assignment_submission",{p_submission:sub.id,p_status:status,p_score:score,p_feedback:$("#reviewFeedback").value.trim()||null});
+    if(error)throw error;toast(status==="graded"?"نمره تکلیف ثبت شد.":"تکلیف برای اصلاح بازگردانده شد.");renderHomework();
+  },"ثبت ارزیابی");
+}
+
+async function renderGroups(){
+  setPage(state.profile.role==="teacher"?"گروه‌های کلاسی":"گروه من",state.profile.role==="teacher"?"سرگروه، اعضا و فیلدهای ارزیابی":"مشاهده اعضا و ثبت امتیاز توسط سرگروه");
+  const [{data:groups,error},{data:members},{data:fields},{data:entries}]=await Promise.all([
+    state.sb.from("student_groups").select("*").order("name"),
+    state.sb.from("student_group_members").select("*"),
+    state.sb.from("group_score_fields").select("*").order("sort_order"),
+    state.sb.from("group_score_entries").select("*")
+  ]);
+  if(error)throw error;
+  const cards=(groups||[]).map(g=>{
+    const gm=(members||[]).filter(m=>m.group_id===g.id);
+    const gf=(fields||[]).filter(x=>x.group_id===g.id);
+    const ge=(entries||[]).filter(e=>gf.some(f=>f.id===e.field_id));
+    const memberNames=gm.map(m=>esc(userName(m.student_id))).join("، ");
+    const scores=gm.map(m=>{
+      const vals=ge.filter(e=>e.student_id===m.student_id).map(e=>Number(e.score));
+      return vals.length?`${esc(userName(m.student_id))}: ${(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(1)}`:null;
+    }).filter(Boolean);
+    return `<article class="group-card"><div class="group-card-head"><div><span class="badge info">${esc(subjectName(g.subject_id))}</span><h3>${esc(g.name)}</h3><p>${esc(className(g.class_id))}</p></div><div class="leader-chip"><small>سرگروه</small><b>${esc(userName(g.leader_id))}</b></div></div>
+      <div class="group-members"><b>اعضا:</b> ${memberNames||"-"}</div>
+      <div class="pill-row">${gf.map(f=>`<span class="score-field-chip">${esc(f.title)} / ${f.max_score}</span>`).join("")||'<span class="muted">فیلد ارزیابی تعریف نشده است.</span>'}</div>
+      ${state.profile.role==="teacher"&&scores.length?`<div class="group-score-summary">${scores.map(x=>`<span>${x}</span>`).join("")}</div>`:""}
+      <div class="actions">
+        ${state.profile.role==="teacher"?`<button class="btn btn-primary add-group-field" data-id="${g.id}">تعریف فیلد نمره</button><button class="btn btn-ghost del-group" data-id="${g.id}">حذف گروه</button>`:""}
+        ${state.profile.id===g.leader_id?`<button class="btn btn-primary leader-score" data-id="${g.id}">ثبت امتیاز اعضا</button>`:""}
+      </div>
+    </article>`;
+  }).join("");
+  $("#content").innerHTML=`${state.profile.role==="teacher"?'<div class="panel-head page-actions"><div><h3>گروه‌های شما</h3><p class="muted">برای هر کلاس/درس گروه بسازید و سرگروه تعیین کنید.</p></div><button class="btn btn-primary" id="newGroup">+ گروه جدید</button></div>':""}<div class="group-grid">${cards||'<div class="card empty">گروهی ثبت نشده است.</div>'}</div>`;
+  if($("#newGroup"))$("#newGroup").onclick=openNewGroupModal;
+  document.querySelectorAll(".add-group-field").forEach(b=>b.onclick=()=>openGroupFieldModal((groups||[]).find(g=>g.id===b.dataset.id)));
+  document.querySelectorAll(".del-group").forEach(b=>b.onclick=async()=>{if(!confirm("گروه حذف شود؟"))return;const {error}=await state.sb.from("student_groups").delete().eq("id",b.dataset.id);if(error)return toast(errText(error),true);toast("گروه حذف شد.");renderGroups()});
+  document.querySelectorAll(".leader-score").forEach(b=>b.onclick=()=>leaderScoreModal((groups||[]).find(g=>g.id===b.dataset.id),members||[],fields||[],entries||[]));
+}
+
+async function openNewGroupModal(){
+  const teaching=state.assignments.filter(a=>a.teacher_id===state.profile.id);
+  if(!teaching.length)return toast("کلاس/درسی به شما تخصیص داده نشده است.",true);
+  modal("گروه جدید",`<div class="form-grid">
+    <label><span>کلاس و درس</span><select id="groupCourse">${teaching.map(a=>`<option value="${a.class_id}|${a.subject_id}">${esc(className(a.class_id))} — ${esc(subjectName(a.subject_id))}</option>`).join("")}</select></label>
+    <label><span>نام گروه</span><input id="groupName" required></label>
+    <label class="wide"><span>سرگروه</span><select id="groupLeader"></select></label>
+    <div class="wide"><strong>اعضای گروه</strong><div class="check-grid" id="groupMemberChecks"></div></div>
+  </div>`,async()=>{
+    const [class_id,subject_id]=$("#groupCourse").value.split("|");
+    const leader_id=$("#groupLeader").value, name=$("#groupName").value.trim();
+    const selected=[...document.querySelectorAll("#groupMemberChecks input:checked")].map(x=>x.value);
+    if(!name||!leader_id)throw new Error("نام گروه و سرگروه الزامی است.");
+    if(!selected.includes(leader_id))selected.push(leader_id);
+    const {data:g,error}=await state.sb.from("student_groups").insert({teacher_id:state.profile.id,class_id,subject_id,name,leader_id}).select("*").single();
+    if(error)throw error;
+    const {error:memberError}=await state.sb.from("student_group_members").insert(selected.map(student_id=>({group_id:g.id,student_id})));
+    if(memberError){await state.sb.from("student_groups").delete().eq("id",g.id);throw memberError}
+    toast("گروه ایجاد شد.");renderGroups();
+  },"ساخت گروه");
+  const refresh=()=>{
+    const [classId]=$("#groupCourse").value.split("|");
+    const students=state.classStudents.filter(x=>x.class_id===classId).map(x=>byId(state.profiles,x.student_id)).filter(Boolean);
+    $("#groupLeader").innerHTML=students.map(s=>`<option value="${s.id}">${esc(s.full_name)}</option>`).join("");
+    $("#groupMemberChecks").innerHTML=students.map(s=>`<label class="check-card"><input type="checkbox" value="${s.id}"><span><b>${esc(s.full_name)}</b><small>${esc(s.national_id)}</small></span></label>`).join("");
+  };
+  $("#groupCourse").onchange=refresh;refresh();
+}
+
+function openGroupFieldModal(group){
+  modal("تعریف فیلدهای امتیازدهی",`<div class="alert alert-info">نام هر فیلد را در یک خط بنویسید. حداکثر نمره هر فیلد ۲۰ است.</div><br>
+    <label><span>نام فیلدها</span><textarea id="fieldNames" placeholder="همکاری\\nمسئولیت‌پذیری\\nارائه"></textarea></label>`,async()=>{
+    const names=$("#fieldNames").value.split("\\n").map(x=>x.trim()).filter(Boolean);
+    if(!names.length)throw new Error("حداقل یک نام فیلد وارد کنید.");
+    const {data:old}=await state.sb.from("group_score_fields").select("sort_order").eq("group_id",group.id).order("sort_order",{ascending:false}).limit(1);
+    const base=(old?.[0]?.sort_order??-1)+1;
+    const {error}=await state.sb.from("group_score_fields").insert(names.map((title,i)=>({group_id:group.id,title,max_score:20,sort_order:base+i})));
+    if(error)throw error;toast("فیلدهای امتیازدهی اضافه شد.");renderGroups();
+  },"افزودن فیلدها");
+}
+
+function leaderScoreModal(group,members,fields,entries){
+  const gm=members.filter(m=>m.group_id===group.id), gf=fields.filter(f=>f.group_id===group.id);
+  if(!gf.length)return toast("دبیر هنوز فیلد امتیازدهی تعریف نکرده است.",true);
+  const current=new Map(entries.map(e=>[`${e.field_id}|${e.student_id}`,e]));
+  const head=gf.map(f=>`<th>${esc(f.title)}<small>از ${f.max_score}</small></th>`).join("");
+  const rows=gm.map(m=>`<tr data-student="${m.student_id}"><td>${esc(userName(m.student_id))}</td>${gf.map(f=>`<td><input class="group-score-input" inputmode="decimal" data-field="${f.id}" data-max="${f.max_score}" value="${current.get(`${f.id}|${m.student_id}`)?.score??""}"></td>`).join("")}</tr>`).join("");
+  modal("ثبت امتیاز اعضای گروه",`<div class="table-wrap"><table><thead><tr><th>عضو گروه</th>${head}</tr></thead><tbody>${rows}</tbody></table></div>`,async()=>{
+    const payload=[];
+    document.querySelectorAll("#modalBody tr[data-student]").forEach(tr=>{
+      tr.querySelectorAll(".group-score-input").forEach(inp=>{
+        if(!inp.value.trim())return;
+        const score=num(inp.value), max=Number(inp.dataset.max);
+        if(score===null||score<0||score>max)throw new Error(`نمره ${inp.dataset.field} باید بین ۰ تا ${max} باشد.`);
+        payload.push({field_id:inp.dataset.field,student_id:tr.dataset.student,score,submitted_by:state.profile.id,updated_at:new Date().toISOString()});
+      });
+    });
+    if(!payload.length)throw new Error("حداقل یک نمره وارد کنید.");
+    const {error}=await state.sb.from("group_score_entries").upsert(payload,{onConflict:"field_id,student_id"});
+    if(error)throw error;toast("امتیازهای گروه ثبت شد.");renderGroups();
+  },"ثبت امتیازها");
+}
+
+function persianDateParts(date){
+  const parts=new Intl.DateTimeFormat("en-US-u-ca-persian",{year:"numeric",month:"numeric",day:"numeric"}).formatToParts(date);
+  const get=t=>Number(parts.find(p=>p.type===t)?.value);
+  return {year:get("year"),month:get("month"),day:get("day")};
+}
+function firstPersianMonthDay(date){
+  const d=new Date(date); d.setHours(12,0,0,0);
+  let guard=35;
+  while(persianDateParts(d).day!==1&&guard-->0)d.setDate(d.getDate()-1);
+  return d;
+}
+function mountJalaliPicker(containerId,hiddenId,initialDate=new Date()){
+  const root=document.getElementById(containerId), hidden=document.getElementById(hiddenId);
+  let selected=new Date(initialDate), anchor=new Date(initialDate), time="23:59";
+  const sync=()=>{
+    const [h,m]=toEnDigits(time).split(":").map(Number);
+    const d=new Date(selected);d.setHours(Number.isFinite(h)?h:23,Number.isFinite(m)?m:59,0,0);
+    hidden.value=d.toISOString();
+    const out=root.querySelector(".jalali-selected");
+    if(out)out.textContent=`${new Intl.DateTimeFormat("fa-IR-u-ca-persian",{dateStyle:"full"}).format(d)} — ساعت ${toFaDigits(String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"))}`;
+  };
+  const render=()=>{
+    const first=firstPersianMonthDay(anchor), p=persianDateParts(first);
+    const offset=(first.getDay()+1)%7;
+    const days=[];let d=new Date(first);
+    while(persianDateParts(d).month===p.month){
+      days.push(new Date(d));d.setDate(d.getDate()+1);
+    }
+    root.innerHTML=`<div class="jalali-head"><button type="button" class="icon-btn prev-month">‹</button><strong>${new Intl.DateTimeFormat("fa-IR-u-ca-persian",{month:"long",year:"numeric"}).format(first)}</strong><button type="button" class="icon-btn next-month">›</button></div>
+      <div class="week-row">${["ش","ی","د","س","چ","پ","ج"].map(x=>`<span>${x}</span>`).join("")}</div>
+      <div class="days-grid">${Array(offset).fill('<span></span>').join("")}${days.map(day=>{const pp=persianDateParts(day),active=day.toDateString()===selected.toDateString();return `<button type="button" data-ts="${day.getTime()}" class="${active?"selected":""}">${pp.day}</button>`}).join("")}</div>
+      <div class="jalali-time"><label><span>ساعت</span><input class="jalali-time-input" inputmode="numeric" value="${time}"></label><div class="jalali-selected"></div></div>`;
+    root.querySelector(".prev-month").onclick=()=>{const x=firstPersianMonthDay(anchor);x.setDate(x.getDate()-1);anchor=x;render()};
+    root.querySelector(".next-month").onclick=()=>{const x=new Date(days[days.length-1]);x.setDate(x.getDate()+1);anchor=x;render()};
+    root.querySelectorAll(".days-grid button").forEach(b=>b.onclick=()=>{selected=new Date(Number(b.dataset.ts));anchor=new Date(selected);render();sync()});
+    root.querySelector(".jalali-time-input").oninput=e=>{time=e.target.value;sync()};
+    sync();
+  };
+  render();
 }
 
 async function renderTeachers(){
@@ -403,7 +947,7 @@ function resolveObjection(id,approve,score=null){
   if(approve){
     const o=undefined;
     modal("تأیید اعتراض و اصلاح نمره",`<div class="alert alert-info">پس از تأیید باید نمره اصلاح‌شده را ثبت کنید. اگر بخش مربوطه قفل باشد، ابتدا مدیر باید آن را بازگشایی کند.</div><br>
-    <label><span>نمره جدید</span><input id="newScore" type="number" min="0" max="20" step=".25"></label><label style="margin-top:12px"><span>توضیح (اختیاری)</span><textarea id="teacherResp"></textarea></label>`,async()=>{
+    <label><span>نمره جدید</span><input id="newScore" type="text" inputmode="decimal" min="0" max="20" step=".25"></label><label style="margin-top:12px"><span>توضیح (اختیاری)</span><textarea id="teacherResp"></textarea></label>`,async()=>{
       const {data:obj}=await state.sb.from("objections").select("*").eq("id",id).single();
       const newValue=num($("#newScore").value); if(newValue===null)throw new Error("نمره جدید الزامی است.");
       const current=score|| (await state.sb.from("scores").select("*").eq("id",obj.score_id).single()).data;
