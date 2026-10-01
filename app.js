@@ -223,7 +223,9 @@ async function renderAssignments(){
 async function renderScores(){
   setPage("ثبت نمرات","نمره تکوینی، پایانی و محاسبه خودکار نمره درس");
   await refreshRefs();
-  const asgs=state.profile.role==="manager"?state.assignments:state.assignments.filter(a=>a.teacher_id===state.profile.id);
+  const asgs=state.profile.role==="manager"
+    ? state.classes.flatMap(c=>state.subjects.filter(s=>s.grade_id===c.grade_id).map(s=>({class_id:c.id,subject_id:s.id,teacher_id:null})))
+    : state.assignments.filter(a=>a.teacher_id===state.profile.id);
   if(!asgs.length){$("#content").innerHTML='<div class="card empty">هیچ کلاس/درسی برای ثبت نمره در دسترس نیست.</div>';return;}
   const opts=asgs.map(a=>`<option value="${a.class_id}|${a.subject_id}">${esc(className(a.class_id))} — ${esc(subjectName(a.subject_id))}</option>`).join("");
   $("#content").innerHTML=`<div class="card"><div class="toolbar"><label><span>کلاس و درس</span><select id="scoreCourse">${opts}</select></label>
