@@ -317,7 +317,26 @@ async function renderAssignments(){
   <div class="card"><div class="panel-head"><h3>دانش‌آموزان کلاس</h3><button class="btn btn-primary" id="addCs">+ عضویت</button></div>${table(["دانش‌آموز","کلاس",""],csr)}</div>
   <div class="card"><div class="panel-head"><h3>نماینده کلاس</h3><button class="btn btn-primary" id="addRep">+ نماینده</button></div>${table(["کلاس","نماینده",""],rr)}</div></div>`;
   $("#addAsg").onclick=()=>modal("تخصیص معلم",`<div class="form-grid"><label><span>معلم</span><select id="aTeacher">${teachers.map(x=>`<option value="${x.id}">${esc(x.full_name)}</option>`).join("")}</select></label><label><span>کلاس</span><select id="aClass">${state.classes.map(x=>`<option value="${x.id}">${esc(className(x.id))}</option>`).join("")}</select></label><label><span>درس</span><select id="aSubject">${state.subjects.map(x=>`<option value="${x.id}">${esc(x.title)}</option>`).join("")}</select></label></div>`,async()=>{const {error}=await state.sb.from("teacher_assignments").insert({teacher_id:$("#aTeacher").value,class_id:$("#aClass").value,subject_id:$("#aSubject").value});if(error)throw error;await refreshRefs(true);renderAssignments();});
-  $("#addCs").onclick=()=>modal("افزودن دانش‌آموز به کلاس",`<div class="form-grid"><label><span>دانش‌آموز</span><select id="csStudent">${students.map(x=>`<option value="${x.id}">${esc(x.full_name)}</option>`).join("")}</select></label><label><span>کلاس</span><select id="csClass">${state.classes.map(x=>`<option value="${x.id}">${esc(className(x.id))}</option>`).join("")}</select></label></div>`,async()=>{const {error}=await state.sb.from("class_students").insert({student_id:$("#csStudent").value,class_id:$("#csClass").value});if(error)throw error;await refreshRefs(true);renderAssignments();});
+  $("#addCs").onclick=()=>modal("افزودن گروهی دانش‌آموزان به کلاس",`
+    <div class="form-grid">
+      <label class="wide"><span>کلاس مقصد</span><select id="csClass">${state.classes.map(x=>`<option value="${x.id}">${esc(className(x.id))}</option>`).join("")}</select></label>
+      <div class="wide">
+        <div class="selection-head"><strong>انتخاب دانش‌آموزان</strong><button type="button" class="btn btn-ghost btn-sm" id="selectAllStudents">انتخاب همه</button></div>
+        <div class="check-grid" id="studentChecks">
+          ${students.map(x=>`<label class="check-card"><input type="checkbox" value="${x.id}"><span><b>${esc(x.full_name)}</b><small>${esc(x.national_id)}</small></span></label>`).join("")}
+        </div>
+      </div>
+    </div>`,async()=>{
+      const selected=[...document.querySelectorAll("#studentChecks input:checked")].map(x=>x.value);
+      if(!selected.length)throw new Error("حداقل یک دانش‌آموز را انتخاب کنید.");
+      const classId=$("#csClass").value;
+      const rows=selected.map(student_id=>({class_id:classId,student_id}));
+      const {error}=await state.sb.from("class_students").upsert(rows,{onConflict:"class_id,student_id",ignoreDuplicates:true});
+      if(error)throw error;
+      toast(`${selected.length} دانش‌آموز به کلاس اضافه شد.`);
+      await refreshRefs(true);renderAssignments();
+    });
+    setTimeout(()=>{const b=$("#selectAllStudents");if(b)b.onclick=()=>document.querySelectorAll("#studentChecks input").forEach(x=>x.checked=true)},0);
   $("#addRep").onclick=()=>modal("ثبت نماینده کلاس",`<div class="form-grid"><label><span>کلاس</span><select id="rClass">${state.classes.map(x=>`<option value="${x.id}">${esc(className(x.id))}</option>`).join("")}</select></label><label><span>دانش‌آموز</span><select id="rStudent">${students.map(x=>`<option value="${x.id}">${esc(x.full_name)}</option>`).join("")}</select></label></div>`,async()=>{const {error}=await state.sb.from("class_representatives").upsert({class_id:$("#rClass").value,student_id:$("#rStudent").value});if(error)throw error;await refreshRefs(true);renderAssignments();});
   document.querySelectorAll(".del-asg").forEach(b=>b.onclick=async()=>{await state.sb.from("teacher_assignments").delete().eq("id",b.dataset.id);await refreshRefs(true);renderAssignments();});
   document.querySelectorAll(".del-cs").forEach(b=>b.onclick=async()=>{await state.sb.from("class_students").delete().eq("class_id",b.dataset.c).eq("student_id",b.dataset.s);await refreshRefs(true);renderAssignments();});
