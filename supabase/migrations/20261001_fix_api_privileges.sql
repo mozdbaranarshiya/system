@@ -26,8 +26,7 @@ grant execute on function public.student_in_class(uuid) to authenticated;
 grant execute on function public.save_score(uuid, uuid, uuid, text, numeric, numeric) to authenticated;
 grant execute on function public.set_score_lock(uuid, uuid, text, text, boolean) to authenticated;
 
--- Keep the auth schema private from browser clients.
-revoke all on table auth.users from anon, authenticated;
+-- No privileges are granted on auth.users; browser clients should use public.profiles instead.
 
 -- Quick checks: these should all return true for the listed privileges.
 select
