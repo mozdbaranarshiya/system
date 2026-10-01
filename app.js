@@ -48,12 +48,28 @@ function setupPersianDigits(){
       try{el.setSelectionRange(pos,pos)}catch(_){}
     }
   },true);
-  const observer=new MutationObserver(items=>{
-    items.forEach(m=>m.addedNodes.forEach(n=>{
+  const pendingNodes=new Set();
+  let persianizeScheduled=false;
+  const flushPersianNodes=()=>{
+    persianizeScheduled=false;
+    const nodes=[...pendingNodes];
+    pendingNodes.clear();
+    nodes.forEach(n=>{
+      if(!n?.isConnected)return;
       if(n.nodeType===Node.TEXT_NODE){
-        const next=toFaDigits(n.nodeValue); if(next!==n.nodeValue)n.nodeValue=next;
-      }else if(n.nodeType===Node.ELEMENT_NODE)persianizeNode(n);
-    }));
+        const next=toFaDigits(n.nodeValue);
+        if(next!==n.nodeValue)n.nodeValue=next;
+      }else if(n.nodeType===Node.ELEMENT_NODE){
+        persianizeNode(n);
+      }
+    });
+  };
+  const observer=new MutationObserver(items=>{
+    items.forEach(m=>m.addedNodes.forEach(n=>pendingNodes.add(n)));
+    if(!persianizeScheduled){
+      persianizeScheduled=true;
+      requestAnimationFrame(flushPersianNodes);
+    }
   });
   observer.observe(document.body,{childList:true,subtree:true});
   persianizeNode(document.body);
@@ -62,7 +78,7 @@ const state = {
   sb: configured ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null,
   session:null, profile:null, route:"dashboard",
   profiles:[], grades:[], classes:[], subjects:[], assignments:[], classStudents:[], representatives:[],
-  refsLoadedAt:0, refsPromise:null
+  refsLoadedAt:0, refsPromise:null, pageCache:new Map()
 };
 
 function toast(message, error=false){
@@ -120,6 +136,18 @@ function table(headers,rows,empty="اطلاعاتی ثبت نشده است."){
   if(!rows.length)return `<div class="empty">${empty}</div>`;
   return `<div class="table-wrap"><table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
 }
+async function cachedPage(key,ttl,loader){
+  const user=state.profile?.id||"anon", cacheKey=`${user}:${key}`;
+  const hit=state.pageCache.get(cacheKey);
+  if(hit && Date.now()-hit.at<ttl)return hit.value;
+  const value=await loader();
+  state.pageCache.set(cacheKey,{at:Date.now(),value});
+  return value;
+}
+function clearPageCache(prefix=""){
+  const user=state.profile?.id||"anon", start=`${user}:${prefix}`;
+  for(const key of state.pageCache.keys())if(key.startsWith(start))state.pageCache.delete(key);
+}
 
 document.addEventListener("DOMContentLoaded", init);
 async function init(){
@@ -152,7 +180,7 @@ async function login(e){
 }
 async function logout(){await state.sb.auth.signOut();showLogin();}
 function showLogin(){
-  state.profile=null; state.refsLoadedAt=0;
+  state.profile=null; state.refsLoadedAt=0; state.pageCache.clear();
   $("#appView").classList.add("hidden");$("#loginView").classList.remove("hidden");
 }
 async function enterApp(){
@@ -191,7 +219,7 @@ function buildNav(){
   $("#mainNav").querySelectorAll("button").forEach(b=>b.onclick=()=>navigate(b.dataset.route));
 }
 async function refreshRefs(force=false){
-  const maxAge=15000;
+  const maxAge=60000;
   if(!force && state.refsLoadedAt && Date.now()-state.refsLoadedAt<maxAge) return;
   if(state.refsPromise){
     await state.refsPromise;
@@ -199,13 +227,13 @@ async function refreshRefs(force=false){
   }
 
   const queries=[
-    ["profiles","profiles","*","full_name"],
-    ["grades","grade_levels","*","sort_order"],
-    ["classes","classes","*","title"],
-    ["subjects","subjects","*","title"],
-    ["assignments","teacher_assignments","*","id"],
-    ["classStudents","class_students","*","class_id"],
-    ["representatives","class_representatives","*","class_id"]
+    ["profiles","profiles","id,national_id,full_name,role,active","full_name"],
+    ["grades","grade_levels","id,title,sort_order","sort_order"],
+    ["classes","classes","id,grade_id,title,academic_year","title"],
+    ["subjects","subjects","id,grade_id,title","title"],
+    ["assignments","teacher_assignments","id,teacher_id,class_id,subject_id","id"],
+    ["classStudents","class_students","class_id,student_id","class_id"],
+    ["representatives","class_representatives","class_id,student_id","class_id"]
   ];
 
   state.refsPromise=Promise.all(
@@ -638,18 +666,22 @@ async function renderHomework(){
 }
 
 async function renderTeacherHomework(){
-  const [{data:tasks,error},{data:groups,error:groupsError}]=await Promise.all([
-    state.sb.from("assignments").select("*").order("created_at",{ascending:false}),
-    state.sb.from("student_groups").select("*").order("name")
-  ]);
-  if(error)throw error;
-  if(groupsError)throw groupsError;
-  const ids=(tasks||[]).map(x=>x.id);
-  let submissions=[];
-  if(ids.length){
-    const r=await state.sb.from("assignment_submissions").select("*").in("assignment_id",ids).order("submitted_at",{ascending:false});
-    if(r.error)throw r.error; submissions=r.data||[];
-  }
+  const {tasks,groups,submissions}=await cachedPage("homework:teacher",20000,async()=>{
+    const [{data:tasks,error},{data:groups,error:groupsError}]=await Promise.all([
+      state.sb.from("assignments").select("id,teacher_id,class_id,subject_id,group_id,title,description,due_at,created_at").order("created_at",{ascending:false}),
+      state.sb.from("student_groups").select("id,teacher_id,class_id,subject_id,name,leader_id").order("name")
+    ]);
+    if(error)throw error;
+    if(groupsError)throw groupsError;
+    const ids=(tasks||[]).map(x=>x.id);
+    let submissions=[];
+    if(ids.length){
+      const r=await state.sb.from("assignment_submissions").select("id,assignment_id,student_id,status,score,submitted_at").in("assignment_id",ids).order("submitted_at",{ascending:false});
+      if(r.error)throw r.error;
+      submissions=r.data||[];
+    }
+    return {tasks:tasks||[],groups:groups||[],submissions};
+  });
   const cards=(tasks||[]).map(t=>{
     const group=t.group_id?(groups||[]).find(g=>g.id===t.group_id):null;
     const subs=submissions.filter(s=>s.assignment_id===t.id);
@@ -667,7 +699,7 @@ async function renderTeacherHomework(){
   document.querySelectorAll(".del-homework").forEach(b=>b.onclick=async()=>{
     if(!confirm("این تکلیف و ارسال‌های وابسته حذف شود؟"))return;
     const {error}=await state.sb.from("assignments").delete().eq("id",b.dataset.id);
-    if(error)return toast(errText(error),true); toast("تکلیف حذف شد.");renderHomework();
+    if(error)return toast(errText(error),true); clearPageCache("homework:"); toast("تکلیف حذف شد.");renderHomework();
   });
 }
 
@@ -694,7 +726,7 @@ async function openHomeworkModal(){
       teacher_id:state.profile.id,class_id,subject_id,group_id,title,
       description:$("#hwDescription").value.trim()||null,due_at
     });
-    if(error)throw error; toast("تکلیف ثبت شد.");renderHomework();
+    if(error)throw error; clearPageCache("homework:"); toast("تکلیف ثبت شد.");renderHomework();
   },"ثبت تکلیف");
   const refreshGroups=()=>{
     const [c,s]=$("#hwCourse").value.split("|");
@@ -709,12 +741,15 @@ async function openHomeworkModal(){
 }
 
 async function renderStudentHomework(){
-  const [{data:tasks,error},{data:subs,error:subsError}]=await Promise.all([
-    state.sb.from("assignments").select("*").order("due_at",{ascending:true}),
-    state.sb.from("assignment_submissions").select("*").eq("student_id",state.profile.id)
-  ]);
-  if(error)throw error;
-  if(subsError)throw subsError;
+  const {tasks,subs}=await cachedPage("homework:student",20000,async()=>{
+    const [{data:tasks,error},{data:subs,error:subsError}]=await Promise.all([
+      state.sb.from("assignments").select("id,class_id,subject_id,group_id,title,description,due_at,created_at").order("due_at",{ascending:true}),
+      state.sb.from("assignment_submissions").select("id,assignment_id,student_id,file_path,original_name,status,score,feedback,attempt,submitted_at").eq("student_id",state.profile.id)
+    ]);
+    if(error)throw error;
+    if(subsError)throw subsError;
+    return {tasks:tasks||[],subs:subs||[]};
+  });
   const subMap=new Map((subs||[]).map(s=>[s.assignment_id,s]));
   const cards=(tasks||[]).map(t=>{
     const sub=subMap.get(t.id);
@@ -780,6 +815,7 @@ function openStudentSubmission(task,existing){
       if(existing?.file_path && existing.file_path!==uploaded.path){
         await state.sb.storage.from("assignment-files").remove([existing.file_path]);
       }
+      clearPageCache("homework:");
       toast(existing?"تکلیف اصلاح‌شده ارسال شد.":"تکلیف با موفقیت ارسال شد.");
       renderHomework();
     },"ارسال تکلیف");
@@ -866,8 +902,9 @@ function openStudentSubmission(task,existing){
       uploaded=null;
     }
 
-    const clean=file.name.replace(/[^\p{L}\p{N}._-]+/gu,"_");
-    const path=`${state.profile.id}/${task.id}/${Date.now()}-${clean}`;
+    const rawExt=(file.name.split(".").pop()||"").toLowerCase();
+    const safeExt=/^[a-z0-9]{1,10}$/.test(rawExt)?`.${rawExt}`:"";
+    const path=`${state.profile.id}/${task.id}/${crypto.randomUUID()}${safeExt}`;
 
     try{
       const {error:upError}=await state.sb.storage
@@ -919,22 +956,25 @@ function reviewSubmissionModal(sub){
     const score=status==="graded"?num($("#reviewScore").value):null;
     if(status==="graded"&&(score===null||score<0||score>20))throw new Error("نمره باید بین ۰ تا ۲۰ باشد.");
     const {error}=await state.sb.rpc("review_assignment_submission",{p_submission:sub.id,p_status:status,p_score:score,p_feedback:$("#reviewFeedback").value.trim()||null});
-    if(error)throw error;toast(status==="graded"?"نمره تکلیف ثبت شد.":"تکلیف برای اصلاح بازگردانده شد.");renderHomework();
+    if(error)throw error;clearPageCache("homework:");toast(status==="graded"?"نمره تکلیف ثبت شد.":"تکلیف برای اصلاح بازگردانده شد.");renderHomework();
   },"ثبت ارزیابی");
 }
 
 async function renderGroups(){
   setPage(state.profile.role==="teacher"?"گروه‌های کلاسی":"گروه من",state.profile.role==="teacher"?"سرگروه، اعضا و فیلدهای ارزیابی":"مشاهده اعضا و ثبت امتیاز توسط سرگروه");
-  const [{data:groups,error},{data:members,error:membersError},{data:fields,error:fieldsError},{data:entries,error:entriesError}]=await Promise.all([
-    state.sb.from("student_groups").select("*").order("name"),
-    state.sb.from("student_group_members").select("*"),
-    state.sb.from("group_score_fields").select("*").order("sort_order"),
-    state.sb.from("group_score_entries").select("*")
-  ]);
-  if(error)throw error;
-  if(membersError)throw membersError;
-  if(fieldsError)throw fieldsError;
-  if(entriesError)throw entriesError;
+  const {groups,members,fields,entries}=await cachedPage("groups:page",20000,async()=>{
+    const [{data:groups,error},{data:members,error:membersError},{data:fields,error:fieldsError},{data:entries,error:entriesError}]=await Promise.all([
+      state.sb.from("student_groups").select("id,teacher_id,class_id,subject_id,name,leader_id,created_at").order("name"),
+      state.sb.from("student_group_members").select("group_id,student_id,joined_at"),
+      state.sb.from("group_score_fields").select("id,group_id,title,max_score,sort_order").order("sort_order"),
+      state.sb.from("group_score_entries").select("field_id,student_id,score,submitted_by,updated_at")
+    ]);
+    if(error)throw error;
+    if(membersError)throw membersError;
+    if(fieldsError)throw fieldsError;
+    if(entriesError)throw entriesError;
+    return {groups:groups||[],members:members||[],fields:fields||[],entries:entries||[]};
+  });
   const cards=(groups||[]).map(g=>{
     const gm=(members||[]).filter(m=>m.group_id===g.id);
     const gf=(fields||[]).filter(x=>x.group_id===g.id);
@@ -957,7 +997,7 @@ async function renderGroups(){
   $("#content").innerHTML=`${state.profile.role==="teacher"?'<div class="panel-head page-actions"><div><h3>گروه‌های شما</h3><p class="muted">برای هر کلاس/درس گروه بسازید و سرگروه تعیین کنید.</p></div><button class="btn btn-primary" id="newGroup">+ گروه جدید</button></div>':""}<div class="group-grid">${cards||'<div class="card empty">گروهی ثبت نشده است.</div>'}</div>`;
   if($("#newGroup"))$("#newGroup").onclick=openNewGroupModal;
   document.querySelectorAll(".add-group-field").forEach(b=>b.onclick=()=>openGroupFieldModal((groups||[]).find(g=>g.id===b.dataset.id)));
-  document.querySelectorAll(".del-group").forEach(b=>b.onclick=async()=>{if(!confirm("گروه حذف شود؟"))return;const {error}=await state.sb.from("student_groups").delete().eq("id",b.dataset.id);if(error)return toast(errText(error),true);toast("گروه حذف شد.");renderGroups()});
+  document.querySelectorAll(".del-group").forEach(b=>b.onclick=async()=>{if(!confirm("گروه حذف شود؟"))return;const {error}=await state.sb.from("student_groups").delete().eq("id",b.dataset.id);if(error)return toast(errText(error),true);clearPageCache("groups:");toast("گروه حذف شد.");renderGroups()});
   document.querySelectorAll(".leader-score").forEach(b=>b.onclick=()=>leaderScoreModal((groups||[]).find(g=>g.id===b.dataset.id),members||[],fields||[],entries||[]));
 }
 
@@ -979,7 +1019,7 @@ async function openNewGroupModal(){
     if(error)throw error;
     const {error:memberError}=await state.sb.from("student_group_members").insert(selected.map(student_id=>({group_id:g.id,student_id})));
     if(memberError){await state.sb.from("student_groups").delete().eq("id",g.id);throw memberError}
-    toast("گروه ایجاد شد.");renderGroups();
+    clearPageCache("groups:");toast("گروه ایجاد شد.");renderGroups();
   },"ساخت گروه");
   const refresh=()=>{
     const [classId]=$("#groupCourse").value.split("|");
@@ -998,7 +1038,7 @@ function openGroupFieldModal(group){
     const {data:old}=await state.sb.from("group_score_fields").select("sort_order").eq("group_id",group.id).order("sort_order",{ascending:false}).limit(1);
     const base=(old?.[0]?.sort_order??-1)+1;
     const {error}=await state.sb.from("group_score_fields").insert(names.map((title,i)=>({group_id:group.id,title,max_score:20,sort_order:base+i})));
-    if(error)throw error;toast("فیلدهای امتیازدهی اضافه شد.");renderGroups();
+    if(error)throw error;clearPageCache("groups:");toast("فیلدهای امتیازدهی اضافه شد.");renderGroups();
   },"افزودن فیلدها");
 }
 
@@ -1020,7 +1060,7 @@ function leaderScoreModal(group,members,fields,entries){
     });
     if(!payload.length)throw new Error("حداقل یک نمره وارد کنید.");
     const {error}=await state.sb.from("group_score_entries").upsert(payload,{onConflict:"field_id,student_id"});
-    if(error)throw error;toast("امتیازهای گروه ثبت شد.");renderGroups();
+    if(error)throw error;clearPageCache("groups:");toast("امتیازهای گروه ثبت شد.");renderGroups();
   },"ثبت امتیازها");
 }
 
