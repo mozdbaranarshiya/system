@@ -66,7 +66,10 @@
         </div>
       </div>
       <nav id="mainNav"></nav>
-      <button id="logoutBtn" class="btn btn-ghost danger full">خروج از حساب</button>
+      <div class="sidebar-version" aria-label="نسخه برنامه">
+        <span>نسخه سامانه</span>
+        <strong>v-5</strong>
+      </div>
     </aside>
 
     <main class="main">
@@ -78,6 +81,11 @@
         </div>
         <div class="topbar-meta">
           <span id="todayText"></span>
+          <button id="logoutBtn" class="topbar-logout" type="button" aria-label="خروج از حساب" title="خروج از حساب">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M10 17l5-5-5-5M15 12H3M14 3h4a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3h-4"/>
+            </svg>
+          </button>
         </div>
       </header>
       <div id="content" class="content"></div>
