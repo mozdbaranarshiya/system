@@ -22,9 +22,20 @@ Deno.serve(async (req) => {
     const { data: authData, error: authError } = await caller.auth.getUser();
     if (authError || !authData.user) throw new Error("UNAUTHORIZED");
 
-    const { data: callerProfile, error: profileError } = await admin
-      .from("profiles").select("role").eq("id", authData.user.id).single();
-    if (profileError || callerProfile?.role !== "manager") throw new Error("MANAGER_ONLY");
+    // نقش کاربر واردشده را با همان JWT کاربر بررسی می‌کنیم.
+    // این کار باعث می‌شود بررسی نقش دقیقاً مطابق RLS و نشست جاری باشد.
+    const { data: callerProfile, error: profileError } = await caller
+      .from("profiles")
+      .select("role, active")
+      .eq("id", authData.user.id)
+      .single();
+
+    if (profileError) {
+      console.error("PROFILE_LOOKUP_FAILED", profileError);
+      throw new Error(`PROFILE_LOOKUP_FAILED: ${profileError.message}`);
+    }
+    if (!callerProfile?.active) throw new Error("USER_INACTIVE");
+    if (callerProfile.role !== "manager") throw new Error("MANAGER_ONLY");
 
     const body = await req.json();
     const action = String(body.action || "");
