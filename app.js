@@ -24,6 +24,7 @@ function errText(e){
   const m=e?.message||String(e||"خطای نامشخص");
   const map={ACCESS_DENIED:"دسترسی مجاز نیست.",CONTINUOUS_LOCKED:"نمره تکوینی قفل است.",FINAL_LOCKED:"نمره پایانی قفل است.",
     MANAGER_ONLY:"این عملیات فقط برای مدیر مجاز است.",INVALID_NATIONAL_ID:"کد ملی باید ۱۰ رقم باشد.",
+    USER_INACTIVE:"حساب مدیر غیرفعال است.",
     CANNOT_DELETE_SELF:"مدیر نمی‌تواند حساب خودش را حذف کند."};
   return map[m]||m;
 }
