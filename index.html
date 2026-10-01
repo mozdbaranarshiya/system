@@ -49,6 +49,53 @@
     </form>
   </section>
 
+  <section id="mfaView" class="mfa-shell hidden" aria-live="polite">
+    <div class="mfa-card">
+      <div class="mfa-brand">
+        <div class="brand-mark">ا</div>
+        <div>
+          <p class="eyebrow">امنیت حساب مدیر</p>
+          <h1>تأیید دومرحله‌ای با Ente Auth</h1>
+          <p class="muted" id="mfaSubtitle">برای ادامه ورود، کد یک‌بارمصرف را وارد کنید.</p>
+        </div>
+      </div>
+
+      <div id="mfaSetupBox" class="mfa-setup hidden">
+        <div class="mfa-setup-grid">
+          <div class="mfa-qr-wrap">
+            <img id="mfaQrImage" alt="QR احراز هویت دومرحله‌ای" />
+            <small>QR را در Ente Auth اسکن کنید.</small>
+          </div>
+          <div class="mfa-secret-wrap">
+            <span>یا کلید راه‌اندازی را دستی وارد کنید</span>
+            <code id="mfaSecret"></code>
+            <div class="actions">
+              <button id="copyMfaSecret" class="btn btn-ghost" type="button">کپی کلید</button>
+              <a id="openMfaUri" class="btn btn-ghost" href="#" rel="noopener">باز کردن در Authenticator</a>
+            </div>
+          </div>
+        </div>
+        <div class="alert alert-info">
+          بعد از اتصال Ente Auth، کد ۶ رقمی نمایش‌داده‌شده در برنامه را پایین وارد کنید تا اتصال تأیید شود.
+        </div>
+      </div>
+
+      <form id="mfaForm" class="mfa-form">
+        <label>
+          <span>کد ۶ رقمی Ente Auth</span>
+          <input id="mfaCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••" required />
+        </label>
+        <button id="mfaSubmit" class="btn btn-primary full" type="submit">تأیید و ورود</button>
+        <button id="mfaLogout" class="btn btn-ghost full" type="button">لغو و خروج</button>
+      </form>
+
+      <div class="mfa-security-note">
+        <strong>فقط حساب مدیر</strong>
+        <span>معلمان و دانش‌آموزان با همان روش ورود قبلی وارد می‌شوند.</span>
+      </div>
+    </div>
+  </section>
+
   <section id="appView" class="app-shell hidden">
     <aside class="sidebar">
       <div class="sidebar-brand">
