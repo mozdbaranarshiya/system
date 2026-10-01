@@ -158,7 +158,9 @@ function errText(e){
     UPLOAD_NETWORK_ERROR:"ارتباط هنگام آپلود قطع شد. دوباره تلاش کنید.",
     UPLOAD_TIMEOUT:"آپلود بیش از حد طول کشید. اتصال اینترنت را بررسی کنید.",
     NO_SELECTION:"حداقل یک نمره را برای بایگانی انتخاب کنید.",
-    NOTHING_ARCHIVED:"هیچ نمره‌ای به بایگانی منتقل نشد."};
+    NOTHING_ARCHIVED:"هیچ نمره‌ای به بایگانی منتقل نشد.",
+    MFA_REQUIRED:"برای عملیات مدیریتی باید کد دومرحله‌ای تأیید شود.",
+    MFA_LEVEL_NOT_UPGRADED:"سطح امنیت نشست مدیر به AAL2 ارتقا پیدا نکرد."};
   return map[m]||m;
 }
 async function invokeFunction(name, body){
@@ -211,6 +213,155 @@ function clearPageCache(prefix=""){
   for(const key of state.pageCache.keys())if(key.startsWith(start))state.pageCache.delete(key);
 }
 
+
+function showOnlyView(view){
+  ["#loginView","#mfaView","#appView"].forEach(sel=>$(sel)?.classList.add("hidden"));
+  $(view)?.classList.remove("hidden");
+}
+async function currentMfaLevel(){
+  const {data,error}=await state.sb.auth.mfa.getAuthenticatorAssuranceLevel();
+  if(error)throw error;
+  return data;
+}
+async function ensureManagerMfa(){
+  if(state.profile?.role!=="manager")return true;
+
+  const level=await currentMfaLevel();
+  if(level?.currentLevel==="aal2")return true;
+
+  const {data:factors,error:factorsError}=await state.sb.auth.mfa.listFactors();
+  if(factorsError)throw factorsError;
+
+  const totp=factors?.totp||[];
+  const verified=totp.find(f=>f.status==="verified");
+  if(verified){
+    return waitForManagerMfa({
+      mode:"challenge",
+      factorId:verified.id
+    });
+  }
+
+  // عوامل نیمه‌کاره قبلی را پاک می‌کنیم تا هر بار QR تازه و قابل استفاده باشد.
+  for(const factor of totp.filter(f=>f.status!=="verified")){
+    try{await state.sb.auth.mfa.unenroll({factorId:factor.id})}catch(_){}
+  }
+
+  const {data:enrolled,error:enrollError}=await state.sb.auth.mfa.enroll({
+    factorType:"totp",
+    friendlyName:"مدیر سامانه آموزش و پرورش اصفهان"
+  });
+  if(enrollError)throw enrollError;
+
+  return waitForManagerMfa({
+    mode:"setup",
+    factorId:enrolled.id,
+    qr:enrolled.totp?.qr_code||"",
+    secret:enrolled.totp?.secret||"",
+    uri:enrolled.totp?.uri||""
+  });
+}
+function waitForManagerMfa({mode,factorId,qr="",secret="",uri=""}){
+  return new Promise(resolve=>{
+    showOnlyView("#mfaView");
+
+    const setup=$("#mfaSetupBox");
+    const subtitle=$("#mfaSubtitle");
+    const form=$("#mfaForm");
+    const code=$("#mfaCode");
+    const submit=$("#mfaSubmit");
+    const logoutBtn=$("#mfaLogout");
+
+    setup.classList.toggle("hidden",mode!=="setup");
+    subtitle.textContent=mode==="setup"
+      ?"برای اولین ورود مدیر، Ente Auth را با QR یا کلید زیر به حساب متصل کنید."
+      :"کد ۶ رقمی فعلی Ente Auth را برای ورود مدیر وارد کنید.";
+
+    if(mode==="setup"){
+      $("#mfaQrImage").src=qr;
+      $("#mfaSecret").textContent=secret;
+      const open=$("#openMfaUri");
+      open.href=uri||"#";
+      open.classList.toggle("hidden",!uri);
+      $("#copyMfaSecret").onclick=async()=>{
+        try{
+          await navigator.clipboard.writeText(secret);
+          toast("کلید راه‌اندازی کپی شد.");
+        }catch(_){
+          toast("کپی خودکار ممکن نبود؛ کلید را دستی انتخاب کنید.",true);
+        }
+      };
+    }
+
+    code.value="";
+    setTimeout(()=>code.focus(),80);
+
+    let settled=false;
+    const finish=value=>{
+      if(settled)return;
+      settled=true;
+      form.onsubmit=null;
+      logoutBtn.onclick=null;
+      resolve(value);
+    };
+
+    form.onsubmit=async e=>{
+      e.preventDefault();
+      const raw=toEnDigits(code.value).replace(/\D/g,"");
+      if(!/^\d{6}$/.test(raw))return toast("کد Ente Auth باید ۶ رقم باشد.",true);
+
+      const old=submit.textContent;
+      submit.disabled=true;
+      submit.textContent="در حال تأیید…";
+      try{
+        const {error}=await state.sb.auth.mfa.challengeAndVerify({
+          factorId,
+          code:raw
+        });
+        if(error)throw error;
+
+        const {data:{session}}=await state.sb.auth.getSession();
+        state.session=session;
+
+        const level=await currentMfaLevel();
+        if(level?.currentLevel!=="aal2")throw new Error("MFA_LEVEL_NOT_UPGRADED");
+
+        showOnlyView("#appView");
+        toast(mode==="setup"?"Ente Auth با موفقیت به حساب مدیر متصل شد.":"ورود دومرحله‌ای تأیید شد.");
+        finish(true);
+      }catch(err){
+        code.select();
+        toast("کد صحیح نیست یا منقضی شده است. کد جدید Ente Auth را وارد کنید.",true);
+      }finally{
+        submit.disabled=false;
+        submit.textContent=old;
+      }
+    };
+
+    logoutBtn.onclick=async()=>{
+      try{await state.sb.auth.signOut()}catch(_){}
+      showLogin();
+      finish(false);
+    };
+  });
+}
+async function resetManagerMfa(){
+  if(state.profile?.role!=="manager")return;
+  const {data,error}=await state.sb.auth.mfa.listFactors();
+  if(error)throw error;
+  const verified=(data?.totp||[]).filter(f=>f.status==="verified");
+  if(!verified.length)return toast("عامل TOTP فعالی وجود ندارد.",true);
+  if(!confirm("اتصال فعلی Ente Auth حذف شود؟ پس از خروج باید دوباره QR جدید را اسکن کنید."))return;
+
+  for(const factor of verified){
+    const {error}=await state.sb.auth.mfa.unenroll({factorId:factor.id});
+    if(error)throw error;
+  }
+  try{await state.sb.auth.refreshSession()}catch(_){}
+  await state.sb.auth.signOut();
+  showLogin();
+  toast("اتصال Ente Auth حذف شد. در ورود بعدی QR جدید ساخته می‌شود.");
+}
+
 document.addEventListener("DOMContentLoaded", init);
 async function init(){
   setupPersianDigits();
@@ -243,7 +394,9 @@ async function login(e){
 async function logout(){await state.sb.auth.signOut();showLogin();}
 function showLogin(){
   state.profile=null; state.refsLoadedAt=0; state.pageCache.clear();
-  $("#appView").classList.add("hidden");$("#loginView").classList.remove("hidden");
+  $("#appView").classList.add("hidden");
+  $("#mfaView")?.classList.add("hidden");
+  $("#loginView").classList.remove("hidden");
 }
 function refsStorageKey(){return state.session?.user?.id?`school-refs-v610:${state.session.user.id}`:null;}
 function applyRefBundle(data){
@@ -290,7 +443,19 @@ async function enterApp(){
   const {data,error}=await state.sb.from("profiles").select("*").eq("id",state.session.user.id).single();
   if(error||!data?.active){await state.sb.auth.signOut();return toast("حساب کاربری فعال نیست.",true);}
   state.profile=data;
-  $("#loginView").classList.add("hidden");$("#appView").classList.remove("hidden");
+
+  if(data.role==="manager"){
+    try{
+      const verified=await ensureManagerMfa();
+      if(!verified)return;
+    }catch(e){
+      await state.sb.auth.signOut();
+      showLogin();
+      return toast("راه‌اندازی احراز هویت دومرحله‌ای مدیر انجام نشد: "+errText(e),true);
+    }
+  }
+
+  showOnlyView("#appView");
   $("#userName").textContent=data.full_name;
   $("#avatar").textContent=(data.full_name||"ک").trim().charAt(0);
 
@@ -733,8 +898,13 @@ async function studentObjectionModal(scoreId,subjectId){
 
 async function renderSettings(){
   setPage("تنظیمات سامانه","کنترل امکانات عمومی برای دانش‌آموزان");
-  const {data,error}=await state.sb.from("school_settings").select("*").eq("id",true).single();
+  const [{data,error},{data:mfaFactors,error:mfaError}]=await Promise.all([
+    state.sb.from("school_settings").select("*").eq("id",true).single(),
+    state.sb.auth.mfa.listFactors()
+  ]);
   if(error)throw error;
+  if(mfaError)throw mfaError;
+  const verifiedMfa=(mfaFactors?.totp||[]).filter(f=>f.status==="verified");
   $("#content").innerHTML=`
     <div class="settings-grid">
       <div class="card setting-card">
@@ -745,11 +915,25 @@ async function renderSettings(){
         <div><span class="setting-icon">▤</span><div><h3>مشاهده کارنامه</h3><p class="muted">نمایش یا مخفی‌کردن کارنامه برای همه دانش‌آموزان.</p></div></div>
         <label class="switch"><input id="reportSwitch" type="checkbox" ${data.report_cards_open!==false?"checked":""}><span></span></label>
       </div>
+      <div class="card mfa-status-card">
+        <div class="mfa-status-main">
+          <span class="mfa-shield">✓</span>
+          <div>
+            <h3>ورود دومرحله‌ای مدیر</h3>
+            <p class="muted">TOTP سازگار با Ente Auth؛ برای ورود مدیر اجباری است.</p>
+          </div>
+        </div>
+        <div class="actions">
+          <span class="badge">${verifiedMfa.length?"Ente Auth متصل":"نیاز به اتصال"}</span>
+          ${verifiedMfa.length?'<button class="btn btn-ghost danger" id="resetManagerMfa">اتصال مجدد</button>':""}
+        </div>
+      </div>
       <div class="card settings-status-card">
         <h3>وضعیت سامانه</h3>
         <div class="pill-row">
           <span class="badge ${data.objections_open?"":"warn"}">${data.objections_open?"اعتراض فعال":"اعتراض بسته"}</span>
           <span class="badge ${data.report_cards_open!==false?"":"warn"}">${data.report_cards_open!==false?"کارنامه فعال":"کارنامه بسته"}</span>
+          <span class="badge">MFA مدیر فعال</span>
         </div>
       </div>
     </div>`;
@@ -763,6 +947,9 @@ async function renderSettings(){
   };
   $("#objectionSwitch").onchange=e=>updateSetting("objections_open",e.target.checked,e.target,"ثبت اعتراض فعال شد.","ثبت اعتراض بسته شد.");
   $("#reportSwitch").onchange=e=>updateSetting("report_cards_open",e.target.checked,e.target,"نمایش کارنامه فعال شد.","نمایش کارنامه برای دانش‌آموزان بسته شد.");
+  if($("#resetManagerMfa"))$("#resetManagerMfa").onclick=async()=>{
+    try{await resetManagerMfa()}catch(e){toast(errText(e),true)}
+  };
 }
 
 async function renderDiscipline(){
