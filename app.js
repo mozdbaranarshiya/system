@@ -579,16 +579,22 @@ async function announcementModal(){
 
 async function renderReport(){
   setPage("کارنامه من","کارنامه سال تحصیلی بر اساس الگوی رسمی");
+  const {data:settings,error:settingsError}=await state.sb.from("school_settings").select("objections_open,report_cards_open").eq("id",true).maybeSingle();
+  if(settingsError)throw settingsError;
+  if(state.profile.role==="student"&&settings?.report_cards_open===false){
+    $("#content").innerHTML='<div class="card report-closed"><div class="setting-icon">▤</div><h3>نمایش کارنامه غیرفعال است</h3><p class="muted">مدیر مدرسه در حال حاضر امکان مشاهده کارنامه را بسته است.</p></div>';
+    return;
+  }
   const myClassLink=state.classStudents.find(x=>x.student_id===state.profile.id);
   const myClass=myClassLink?byId(state.classes,myClassLink.class_id):null;
   const grade=myClass?byId(state.grades,myClass.grade_id):null;
 
-  const [{data:scores,error:scoreError},{data:discipline},{data:settings}]=await Promise.all([
+  const [{data:scores,error:scoreError},{data:discipline,error:disciplineError}]=await Promise.all([
     state.sb.from("scores").select("*").eq("student_id",state.profile.id).order("period"),
-    state.sb.from("discipline_scores").select("*").eq("student_id",state.profile.id),
-    state.sb.from("school_settings").select("*").eq("id",true).maybeSingle()
+    state.sb.from("discipline_scores").select("*").eq("student_id",state.profile.id)
   ]);
   if(scoreError)throw scoreError;
+  if(disciplineError)throw disciplineError;
 
   const subjects=grade?state.subjects.filter(s=>s.grade_id===grade.id):[...new Set((scores||[]).map(s=>s.subject_id))].map(id=>byId(state.subjects,id)).filter(Boolean);
   const scoreFor=(sid,needle)=>(scores||[]).find(s=>s.subject_id===sid&&String(s.period||"").includes(needle));
@@ -683,26 +689,31 @@ async function renderSettings(){
   $("#content").innerHTML=`
     <div class="settings-grid">
       <div class="card setting-card">
-        <div>
-          <span class="setting-icon">!</span>
-          <div><h3>ثبت اعتراض به نمره</h3><p class="muted">وقتی بسته باشد، دانش‌آموز امکان ارسال اعتراض جدید ندارد.</p></div>
-        </div>
+        <div><span class="setting-icon">!</span><div><h3>ثبت اعتراض به نمره</h3><p class="muted">وقتی بسته باشد، دانش‌آموز امکان ارسال اعتراض جدید ندارد.</p></div></div>
         <label class="switch"><input id="objectionSwitch" type="checkbox" ${data.objections_open?"checked":""}><span></span></label>
       </div>
-      <div class="card">
-        <div class="panel-head"><div><h3>وضعیت فعلی</h3><p class="muted">تغییر وضعیت بلافاصله برای همه دانش‌آموزان اعمال می‌شود.</p></div>
-        <span class="badge ${data.objections_open?"":"warn"}">${data.objections_open?"اعتراض فعال":"اعتراض بسته"}</span></div>
+      <div class="card setting-card">
+        <div><span class="setting-icon">▤</span><div><h3>مشاهده کارنامه</h3><p class="muted">نمایش یا مخفی‌کردن کارنامه برای همه دانش‌آموزان.</p></div></div>
+        <label class="switch"><input id="reportSwitch" type="checkbox" ${data.report_cards_open!==false?"checked":""}><span></span></label>
+      </div>
+      <div class="card settings-status-card">
+        <h3>وضعیت سامانه</h3>
+        <div class="pill-row">
+          <span class="badge ${data.objections_open?"":"warn"}">${data.objections_open?"اعتراض فعال":"اعتراض بسته"}</span>
+          <span class="badge ${data.report_cards_open!==false?"":"warn"}">${data.report_cards_open!==false?"کارنامه فعال":"کارنامه بسته"}</span>
+        </div>
       </div>
     </div>`;
-  $("#objectionSwitch").onchange=async e=>{
-    const objections_open=e.target.checked;
+  const updateSetting=async(field,value,input,messageOn,messageOff)=>{
     const {error}=await state.sb.from("school_settings").update({
-      objections_open,updated_at:new Date().toISOString(),updated_by:state.profile.id
+      [field]:value,updated_at:new Date().toISOString(),updated_by:state.profile.id
     }).eq("id",true);
-    if(error){e.target.checked=!objections_open;return toast(errText(error),true)}
-    toast(objections_open?"ثبت اعتراض فعال شد.":"ثبت اعتراض بسته شد.");
+    if(error){input.checked=!value;return toast(errText(error),true)}
+    toast(value?messageOn:messageOff);
     renderSettings();
   };
+  $("#objectionSwitch").onchange=e=>updateSetting("objections_open",e.target.checked,e.target,"ثبت اعتراض فعال شد.","ثبت اعتراض بسته شد.");
+  $("#reportSwitch").onchange=e=>updateSetting("report_cards_open",e.target.checked,e.target,"نمایش کارنامه فعال شد.","نمایش کارنامه برای دانش‌آموزان بسته شد.");
 }
 
 async function renderDiscipline(){
