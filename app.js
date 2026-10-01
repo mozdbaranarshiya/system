@@ -275,7 +275,7 @@ function buildNav(){
   ];
   if(state.representatives.some(r=>r.student_id===state.profile.id)) studentMenu.splice(4,0,["discipline","ثبت انضباط"]);
   const menus={
-    manager:[["dashboard","داشبورد"],["users","کاربران"],["structure","پایه، کلاس و درس"],["assignments","تخصیص‌ها و نماینده"],["scores","ثبت و قفل نمرات"],["announcements","اطلاعیه‌ها"],["settings","تنظیمات سامانه"]],
+    manager:[["dashboard","داشبورد"],["users","کاربران"],["structure","پایه، کلاس و درس"],["assignments","تخصیص‌ها و نماینده"],["scores","ثبت و قفل نمرات"],["homeworkGrades","نمرات تکالیف"],["excel","ورود از اکسل"],["announcements","اطلاعیه‌ها"],["settings","تنظیمات سامانه"]],
     teacher:[["dashboard","داشبورد"],["scores","ثبت نمرات"],["homework","تکالیف"],["groups","گروه‌های کلاسی"],["announcements","اطلاعیه‌ها"],["objections","اعتراضات"]],
     student:studentMenu
   };
@@ -331,6 +331,8 @@ async function navigate(route){
     if(route==="homework")return renderHomework();
     if(route==="groups")return renderGroups();
     if(route==="discipline")return renderDiscipline();
+    if(route==="homeworkGrades")return renderManagerHomeworkGrades();
+    if(route==="excel")return renderExcelImport();
   }catch(e){$("#content").innerHTML=`<div class="alert alert-warning">${esc(errText(e))}</div>`;}
 }
 
