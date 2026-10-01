@@ -1401,10 +1401,11 @@ async function importSchoolExcel(data,onProgress=()=>{}){
 
   onProgress("ثبت کلاس‌ها…");
   const classPayload=[];const classSeen=new Set();
+  const existingClassKeys=new Set(state.classes.map(cl=>`${cl.grade_id}|${key(cl.title)}|${toFaDigits(cl.academic_year)}`));
   for(const x of [...classes,...students.filter(x=>x.grade&&x.classTitle),...assignments]){
     const g=gradeMap.get(key(x.grade));if(!g)continue;
     const year=toFaDigits(x.year||"۱۴۰۵-۱۴۰۶"),k=`${g.id}|${key(x.classTitle)}|${year}`;
-    if(!classSeen.has(k)){classSeen.add(k);classPayload.push({grade_id:g.id,title:x.classTitle,academic_year:year})}
+    if(!classSeen.has(k)&&!existingClassKeys.has(k)){classSeen.add(k);classPayload.push({grade_id:g.id,title:x.classTitle,academic_year:year})}
   }
   if(classPayload.length){
     const {error}=await state.sb.from("classes").upsert(classPayload,{onConflict:"grade_id,title,academic_year",ignoreDuplicates:true});
