@@ -1,8 +1,8 @@
-// این فایل را پس از ساخت پروژه Supabase تکمیل کنید.
-// SUPABASE_ANON_KEY کلید عمومی (Publishable/anon) است و قرار گرفتن آن در فرانت‌اند طبیعی است.
-// هرگز Service Role Key را در GitHub یا مرورگر قرار ندهید.
+// تنظیم اتصال فرانت‌اند GitHub Pages به Supabase.
+// Publishable key برای استفاده در مرورگر طراحی شده است.
+// هرگز Secret / Service Role Key را در این فایل قرار ندهید.
 window.APP_CONFIG = {
-  SUPABASE_URL: "https://YOUR_PROJECT.supabase.co",
-  SUPABASE_ANON_KEY: "YOUR_SUPABASE_ANON_KEY",
+  SUPABASE_URL: "https://efibfevyiepkwpnobaro.supabase.co",
+  SUPABASE_ANON_KEY: "sb_publishable_zbEGYX6DGhjFRQf6FWiIWQ_IdYj84nW",
   SCHOOL_NAME: "سامانه آموزش و پرورش استان اصفهان"
 };
