@@ -437,3 +437,81 @@ dialog{max-height:92vh}
   .upload-circle{width:150px;height:150px}
   .upload-circle-icon{width:45px;height:45px;font-size:1.35rem}
 }
+
+
+/* ===== نسخه و خروج در نوار بالا ===== */
+.sidebar-version{
+  margin-top:auto;
+  min-height:52px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:10px 13px;
+  border:1px solid rgba(255,255,255,.11);
+  border-radius:14px;
+  background:rgba(255,255,255,.055);
+  color:rgba(255,255,255,.78);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+}
+.sidebar-version span{
+  font-size:.72rem;
+  font-weight:500;
+}
+.sidebar-version strong{
+  direction:ltr;
+  font-size:.88rem;
+  letter-spacing:.04em;
+  color:#d8fff7;
+  background:rgba(255,255,255,.08);
+  border:1px solid rgba(255,255,255,.1);
+  border-radius:10px;
+  padding:4px 9px;
+}
+
+.topbar-meta{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.topbar-logout{
+  width:42px;
+  height:42px;
+  min-width:42px;
+  padding:0;
+  border:1px solid #dbe8e6;
+  border-radius:13px;
+  display:grid;
+  place-items:center;
+  background:#fff;
+  color:#9b2f29;
+  cursor:pointer;
+  box-shadow:0 5px 16px rgba(25,62,58,.06);
+  transition:background .16s ease,border-color .16s ease,transform .16s ease,box-shadow .16s ease;
+}
+.topbar-logout:hover{
+  transform:translateY(-1px);
+  background:#fff3f2;
+  border-color:#efc7c3;
+  box-shadow:0 8px 20px rgba(156,47,41,.10);
+}
+.topbar-logout:focus-visible{
+  outline:0;
+  box-shadow:0 0 0 4px rgba(180,35,24,.10);
+}
+.topbar-logout svg{
+  width:21px;
+  height:21px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.9;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+
+@media(max-width:600px){
+  .topbar-meta{gap:6px}
+  .topbar-logout{width:38px;height:38px;min-width:38px;border-radius:11px}
+  .topbar-logout svg{width:19px;height:19px}
+  .sidebar-version{margin-top:12px}
+}
