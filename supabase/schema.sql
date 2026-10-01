@@ -880,7 +880,7 @@ set role postgres;
 create or replace function public.students_share_class(p_student uuid)
 returns boolean
 language sql stable security definer set search_path=public
-as $
+as $$
   select exists(
     select 1
     from public.class_students mine
@@ -888,7 +888,7 @@ as $
     where mine.student_id=auth.uid()
       and peer.student_id=p_student
   )
-$;
+$$;
 
 create or replace function public.can_view_group(p_group uuid)
 returns boolean
