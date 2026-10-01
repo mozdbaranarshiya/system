@@ -31,7 +31,7 @@ function persianizeNode(root){
   });
   if(root.querySelectorAll){
     root.querySelectorAll("input,textarea").forEach(inp=>{
-      if(["password","file","hidden"].includes(inp.type))return;
+      if(["password","file","hidden","checkbox","radio"].includes(inp.type))return;
       const next=toFaDigits(inp.value);
       if(next!==inp.value)inp.value=next;
     });
@@ -41,7 +41,7 @@ function setupPersianDigits(){
   document.addEventListener("input",e=>{
     const el=e.target;
     if(!(el instanceof HTMLInputElement||el instanceof HTMLTextAreaElement))return;
-    if(["password","file","hidden"].includes(el.type))return;
+    if(["password","file","hidden","checkbox","radio"].includes(el.type))return;
     const pos=el.selectionStart, next=toFaDigits(el.value);
     if(next!==el.value){
       el.value=next;
