@@ -1159,7 +1159,7 @@ async function renderGroups(){
       <div class="pill-row">${gf.map(f=>`<span class="score-field-chip">${esc(f.title)} / ${f.max_score}</span>`).join("")||'<span class="muted">فیلد ارزیابی تعریف نشده است.</span>'}</div>
       ${state.profile.role==="teacher"&&scores.length?`<div class="group-score-summary">${scores.map(x=>`<span>${x}</span>`).join("")}</div>`:""}
       <div class="actions">
-        ${state.profile.role==="teacher"?`<button class="btn btn-primary add-group-field" data-id="${g.id}">تعریف فیلد نمره</button><button class="btn btn-ghost del-group" data-id="${g.id}">حذف گروه</button>`:""}
+        ${state.profile.role==="teacher"?`<button class="btn btn-primary add-group-field" data-id="${g.id}">تعریف فیلد نمره</button><button class="btn btn-ghost view-group-scores" data-id="${g.id}">نمرات سرگروه</button><button class="btn btn-ghost view-group-archive" data-id="${g.id}">بایگانی</button><button class="btn btn-ghost del-group" data-id="${g.id}">حذف گروه</button>`:""}
         ${state.profile.id===g.leader_id?`<button class="btn btn-primary leader-score" data-id="${g.id}">ثبت امتیاز اعضا</button>`:""}
       </div>
     </article>`;
@@ -1169,6 +1169,8 @@ async function renderGroups(){
   document.querySelectorAll(".add-group-field").forEach(b=>b.onclick=()=>openGroupFieldModal((groups||[]).find(g=>g.id===b.dataset.id)));
   document.querySelectorAll(".del-group").forEach(b=>b.onclick=async()=>{if(!confirm("گروه حذف شود؟"))return;const {error}=await state.sb.from("student_groups").delete().eq("id",b.dataset.id);if(error)return toast(errText(error),true);clearPageCache("groups:");toast("گروه حذف شد.");renderGroups()});
   document.querySelectorAll(".leader-score").forEach(b=>b.onclick=()=>leaderScoreModal((groups||[]).find(g=>g.id===b.dataset.id),members||[],fields||[],entries||[]));
+  document.querySelectorAll(".view-group-scores").forEach(b=>b.onclick=()=>showGroupScoresModal((groups||[]).find(g=>g.id===b.dataset.id)));
+  document.querySelectorAll(".view-group-archive").forEach(b=>b.onclick=()=>showGroupScoreArchive((groups||[]).find(g=>g.id===b.dataset.id)));
 }
 
 async function openNewGroupModal(){
@@ -1210,6 +1212,36 @@ function openGroupFieldModal(group){
     const {error}=await state.sb.from("group_score_fields").insert(names.map((title,i)=>({group_id:group.id,title,max_score:20,sort_order:base+i})));
     if(error)throw error;clearPageCache("groups:");toast("فیلدهای امتیازدهی اضافه شد.");renderGroups();
   },"افزودن فیلدها");
+}
+
+async function showGroupScoresModal(group){
+  const [{data:fields,error:fieldError},{data:entries,error:entryError}]=await Promise.all([
+    state.sb.from("group_score_fields").select("id,title,max_score").eq("group_id",group.id).order("sort_order"),
+    state.sb.from("group_score_entries").select("field_id,student_id,score,submitted_by,updated_at")
+  ]);
+  if(fieldError)throw fieldError;
+  if(entryError)throw entryError;
+  const fieldMap=new Map((fields||[]).map(f=>[f.id,f]));
+  const active=(entries||[]).filter(e=>fieldMap.has(e.field_id));
+  const rows=active.map(e=>`<tr><td><input class="archive-score-check" type="checkbox" data-field="${e.field_id}" data-student="${e.student_id}"></td><td>${esc(userName(e.student_id))}</td><td>${esc(fieldMap.get(e.field_id)?.title||"-")}</td><td>${e.score}</td><td>${esc(userName(e.submitted_by))}</td><td>${faDateTime(e.updated_at)}</td></tr>`).join("");
+  modal(`نمرات سرگروه — ${group.name}`,`<div class="panel-head"><div><p class="muted">نمرات موردنظر را انتخاب و به بایگانی منتقل کنید.</p></div><button type="button" class="btn btn-ghost" id="selectAllGroupScores">انتخاب همه</button></div><br>
+    <div class="table-wrap"><table><thead><tr><th></th><th>دانش‌آموز</th><th>فیلد</th><th>نمره</th><th>ثبت‌کننده</th><th>زمان</th></tr></thead><tbody>${rows||'<tr><td colspan="6" class="empty">نمره فعالی ثبت نشده است.</td></tr>'}</tbody></table></div>`,async()=>{
+      const selected=[...document.querySelectorAll(".archive-score-check:checked")].map(x=>({field_id:x.dataset.field,student_id:x.dataset.student}));
+      if(!selected.length)throw new Error("حداقل یک نمره را انتخاب کنید.");
+      const {data,error}=await state.sb.rpc("archive_group_scores",{p_group:group.id,p_entries:selected});
+      if(error)throw error;
+      clearPageCache("groups:");
+      toast(`${data||selected.length} نمره به بایگانی منتقل شد.`);
+      renderGroups();
+    },"بایگانی انتخاب‌شده‌ها");
+  setTimeout(()=>{const b=$("#selectAllGroupScores");if(b)b.onclick=()=>document.querySelectorAll(".archive-score-check").forEach(x=>x.checked=true)},0);
+}
+
+async function showGroupScoreArchive(group){
+  const {data,error}=await state.sb.from("group_score_archives").select("*").eq("group_id",group.id).order("archived_at",{ascending:false});
+  if(error)throw error;
+  const rows=(data||[]).map(e=>`<tr><td>${esc(userName(e.student_id))}</td><td>${esc(e.field_title)}</td><td>${e.score} / ${e.field_max_score}</td><td>${esc(userName(e.submitted_by))}</td><td>${faDateTime(e.archived_at)}</td></tr>`).join("");
+  modal(`بایگانی نمرات — ${group.name}`,`<div class="table-wrap"><table><thead><tr><th>دانش‌آموز</th><th>فیلد</th><th>نمره</th><th>ثبت‌کننده</th><th>تاریخ بایگانی</th></tr></thead><tbody>${rows||'<tr><td colspan="5" class="empty">بایگانی خالی است.</td></tr>'}</tbody></table></div>`,async()=>$("#modal").close(),"بستن");
 }
 
 function leaderScoreModal(group,members,fields,entries){
