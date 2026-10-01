@@ -68,6 +68,8 @@ async function init(){
   $("#loginForm").addEventListener("submit",login);
   $("#logoutBtn").onclick=logout;
   $("#mobileMenuBtn").onclick=()=>$(".sidebar").classList.toggle("open");
+  $("#modalClose").onclick=()=>$("#modal").close();
+  $("#modalCancel").onclick=()=>$("#modal").close();
   if(!configured)return;
 
   const {data:{session}}=await state.sb.auth.getSession();
