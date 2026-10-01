@@ -459,15 +459,15 @@ async function renderReport(){
     const p1=scoreFor(sub.id,"اول")||{}, p2=scoreFor(sub.id,"دوم")||{};
     const lesson1=p1.lesson_score==null?null:Number(p1.lesson_score);
     const lesson2=p2.lesson_score==null?null:Number(p2.lesson_score);
-    const annual=lesson1!=null&&lesson2!=null?(lesson1+lesson2)/2:(lesson2??lesson1);
+    const annual=lesson1!=null&&lesson2!=null?(lesson1+lesson2)/2:null;
     if(annual!=null)values.push(annual);
     const status=annual==null?"-":annual>=10?"قبول":"نیاز به تلاش";
     const objectionScore=p2.id||p1.id;
     const objectionSubject=sub.id;
     return `<tr>
       <td>${i+1}</td><td class="subject-cell">${esc(sub.title)}</td>
-      <td>${p1.continuous_score??"-"}</td><td>${p1.final_score??"-"}</td>
-      <td>${p2.continuous_score??"-"}</td><td>${p2.final_score??"-"}</td>
+      <td>${p1.continuous_score??"-"}</td><td>${p1.final_score??"-"}</td><td class="term-score">${lesson1==null?"-":lesson1.toFixed(2)}</td>
+      <td>${p2.continuous_score??"-"}</td><td>${p2.final_score??"-"}</td><td class="term-score">${lesson2==null?"-":lesson2.toFixed(2)}</td>
       <td class="annual-score">${annual==null?"-":annual.toFixed(2)}</td>
       <td><span class="badge ${annual!=null&&annual<10?"warn":""}">${status}</span></td>
       <td class="no-print">${objectionScore?`<button class="btn btn-ghost obj-btn" data-id="${objectionScore}" data-subject="${objectionSubject}" ${settings?.objections_open?"":"disabled"}>اعتراض</button>`:"-"}</td>
@@ -502,12 +502,12 @@ async function renderReport(){
           <thead>
             <tr>
               <th rowspan="2">ردیف</th><th rowspan="2">نام درس</th>
-              <th colspan="2">نوبت اول</th><th colspan="2">نوبت دوم</th>
+              <th colspan="3">نوبت اول</th><th colspan="3">نوبت دوم</th>
               <th rowspan="2">نمره سالانه</th><th rowspan="2">وضعیت</th><th rowspan="2" class="no-print">اعتراض</th>
             </tr>
-            <tr><th>تکوینی</th><th>پایانی</th><th>تکوینی</th><th>پایانی</th></tr>
+            <tr><th>تکوینی</th><th>پایانی</th><th>نمره درس</th><th>تکوینی</th><th>پایانی</th><th>نمره درس</th></tr>
           </thead>
-          <tbody>${rows||'<tr><td colspan="9" class="empty">هنوز نمره‌ای ثبت نشده است.</td></tr>'}</tbody>
+          <tbody>${rows||'<tr><td colspan="11" class="empty">هنوز نمره‌ای ثبت نشده است.</td></tr>'}</tbody>
         </table>
       </div>
       <div class="report-summary">
@@ -626,11 +626,12 @@ async function renderHomework(){
 }
 
 async function renderTeacherHomework(){
-  const [{data:tasks,error},{data:groups}]=await Promise.all([
+  const [{data:tasks,error},{data:groups,error:groupsError}]=await Promise.all([
     state.sb.from("assignments").select("*").order("created_at",{ascending:false}),
     state.sb.from("student_groups").select("*").order("name")
   ]);
   if(error)throw error;
+  if(groupsError)throw groupsError;
   const ids=(tasks||[]).map(x=>x.id);
   let submissions=[];
   if(ids.length){
@@ -696,11 +697,12 @@ async function openHomeworkModal(){
 }
 
 async function renderStudentHomework(){
-  const [{data:tasks,error},{data:subs}]=await Promise.all([
+  const [{data:tasks,error},{data:subs,error:subsError}]=await Promise.all([
     state.sb.from("assignments").select("*").order("due_at",{ascending:true}),
     state.sb.from("assignment_submissions").select("*").eq("student_id",state.profile.id)
   ]);
   if(error)throw error;
+  if(subsError)throw subsError;
   const subMap=new Map((subs||[]).map(s=>[s.assignment_id,s]));
   const cards=(tasks||[]).map(t=>{
     const sub=subMap.get(t.id);
@@ -778,13 +780,16 @@ function reviewSubmissionModal(sub){
 
 async function renderGroups(){
   setPage(state.profile.role==="teacher"?"گروه‌های کلاسی":"گروه من",state.profile.role==="teacher"?"سرگروه، اعضا و فیلدهای ارزیابی":"مشاهده اعضا و ثبت امتیاز توسط سرگروه");
-  const [{data:groups,error},{data:members},{data:fields},{data:entries}]=await Promise.all([
+  const [{data:groups,error},{data:members,error:membersError},{data:fields,error:fieldsError},{data:entries,error:entriesError}]=await Promise.all([
     state.sb.from("student_groups").select("*").order("name"),
     state.sb.from("student_group_members").select("*"),
     state.sb.from("group_score_fields").select("*").order("sort_order"),
     state.sb.from("group_score_entries").select("*")
   ]);
   if(error)throw error;
+  if(membersError)throw membersError;
+  if(fieldsError)throw fieldsError;
+  if(entriesError)throw entriesError;
   const cards=(groups||[]).map(g=>{
     const gm=(members||[]).filter(m=>m.group_id===g.id);
     const gf=(fields||[]).filter(x=>x.group_id===g.id);
