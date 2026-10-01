@@ -74,7 +74,13 @@ function errText(e){
   const map={ACCESS_DENIED:"دسترسی مجاز نیست.",CONTINUOUS_LOCKED:"نمره تکوینی قفل است.",FINAL_LOCKED:"نمره پایانی قفل است.",
     MANAGER_ONLY:"این عملیات فقط برای مدیر مجاز است.",INVALID_NATIONAL_ID:"کد ملی باید ۱۰ رقم باشد.",
     USER_INACTIVE:"حساب مدیر غیرفعال است.",
-    CANNOT_DELETE_SELF:"مدیر نمی‌تواند حساب خودش را حذف کند."};
+    CANNOT_DELETE_SELF:"مدیر نمی‌تواند حساب خودش را حذف کند.",
+    DEADLINE_PASSED:"مهلت تحویل این تکلیف به پایان رسیده است.",
+    ALREADY_GRADED:"برای این تکلیف نمره نهایی ثبت شده است.",
+    FEEDBACK_REQUIRED:"برای وضعیت «نیاز به اصلاح» توضیح دبیر الزامی است.",
+    INVALID_FILE_PATH:"مسیر فایل معتبر نیست.",
+    INVALID_SCORE:"نمره واردشده معتبر نیست.",
+    INVALID_STATUS:"وضعیت انتخاب‌شده معتبر نیست."};
   return map[m]||m;
 }
 async function invokeFunction(name, body){
@@ -300,7 +306,7 @@ async function renderStructure(){
   document.querySelectorAll(".del-class").forEach(b=>b.onclick=()=>remove("classes",b.dataset.id));
   document.querySelectorAll(".del-subject").forEach(b=>b.onclick=()=>remove("subjects",b.dataset.id));
 }
-function gradeModal(g=null){modal(g?"ویرایش پایه":"پایه جدید",`<div class="form-grid"><label><span>عنوان پایه</span><input id="gTitle" value="${esc(g?.title||"")}"></label><label><span>ترتیب</span><input id="gSort" type="text" inputmode="decimal" value="${g?.sort_order??0}"></label></div>`,async()=>{const payload={title:$("#gTitle").value.trim(),sort_order:Number($("#gSort").value||0)};const q=g?state.sb.from("grade_levels").update(payload).eq("id",g.id):state.sb.from("grade_levels").insert(payload);const {error}=await q;if(error)throw error;await refreshRefs(true);renderStructure();});}
+function gradeModal(g=null){modal(g?"ویرایش پایه":"پایه جدید",`<div class="form-grid"><label><span>عنوان پایه</span><input id="gTitle" value="${esc(g?.title||"")}"></label><label><span>ترتیب</span><input id="gSort" type="text" inputmode="decimal" value="${g?.sort_order??0}"></label></div>`,async()=>{const payload={title:$("#gTitle").value.trim(),sort_order:Number(toEnDigits($("#gSort").value||0))};const q=g?state.sb.from("grade_levels").update(payload).eq("id",g.id):state.sb.from("grade_levels").insert(payload);const {error}=await q;if(error)throw error;await refreshRefs(true);renderStructure();});}
 function classModal(c=null){modal(c?"ویرایش کلاس":"کلاس جدید",`<div class="form-grid"><label><span>پایه</span><select id="cGrade">${state.grades.map(g=>`<option value="${g.id}" ${c?.grade_id===g.id?"selected":""}>${esc(g.title)}</option>`).join("")}</select></label><label><span>نام کلاس</span><input id="cTitle" value="${esc(c?.title||"")}"></label><label><span>سال تحصیلی</span><input id="cYear" value="${esc(c?.academic_year||"1405-1406")}"></label></div>`,async()=>{const payload={grade_id:$("#cGrade").value,title:$("#cTitle").value.trim(),academic_year:$("#cYear").value.trim()};const q=c?state.sb.from("classes").update(payload).eq("id",c.id):state.sb.from("classes").insert(payload);const {error}=await q;if(error)throw error;await refreshRefs(true);renderStructure();});}
 function subjectModal(s=null){modal(s?"ویرایش درس":"درس جدید",`<div class="form-grid"><label><span>پایه</span><select id="sGrade">${state.grades.map(g=>`<option value="${g.id}" ${s?.grade_id===g.id?"selected":""}>${esc(g.title)}</option>`).join("")}</select></label><label><span>نام درس</span><input id="sTitle" value="${esc(s?.title||"")}"></label></div>`,async()=>{const payload={grade_id:$("#sGrade").value,title:$("#sTitle").value.trim()};const q=s?state.sb.from("subjects").update(payload).eq("id",s.id):state.sb.from("subjects").insert(payload);const {error}=await q;if(error)throw error;await refreshRefs(true);renderStructure();});}
 async function remove(tbl,id){if(!confirm("این مورد حذف شود؟ داده‌های وابسته نیز ممکن است حذف شوند."))return;const {error}=await state.sb.from(tbl).delete().eq("id",id);if(error)return toast(errText(error),true);toast("حذف شد.");await refreshRefs(true);renderStructure();}
@@ -371,7 +377,7 @@ async function loadScoreGrid(){
   $("#scoreArea").innerHTML=`<div class="card"><div class="panel-head"><div><h3>${esc(className(classId))} — ${esc(subjectName(subjectId))}</h3><p class="muted">فرمول: (تکوینی + پایانی) ÷ ۲</p></div>
   <div class="actions"><button class="btn btn-primary" id="saveScores">ثبت نمرات</button>${lockButtons}</div></div><br>
   ${table(["دانش‌آموز","تکوینی","پایانی","نمره درس","وضعیت"],rows,"دانش‌آموزی در این کلاس ثبت نشده است.")}</div>`;
-  document.querySelectorAll("#scoreArea tbody input").forEach(inp=>inp.addEventListener("input",e=>{const tr=e.target.closest("tr"),a=tr.querySelector(".cont").value,b=tr.querySelector(".fin").value;tr.querySelector(".score-summary").textContent=(a!==""&&b!=="")?((Number(a)+Number(b))/2).toFixed(2):"-";}));
+  document.querySelectorAll("#scoreArea tbody input").forEach(inp=>inp.addEventListener("input",e=>{const tr=e.target.closest("tr"),a=tr.querySelector(".cont").value,b=tr.querySelector(".fin").value;tr.querySelector(".score-summary").textContent=(a!==""&&b!=="")?((Number(toEnDigits(a))+Number(toEnDigits(b)))/2).toFixed(2):"-";}));
   $("#saveScores").onclick=()=>saveScores(classId,subjectId,period);
   if($("#finalizeBtn"))$("#finalizeBtn").onclick=()=>chooseLock(classId,subjectId,period,true,false);
   if($("#lockBtn"))$("#lockBtn").onclick=()=>chooseLock(classId,subjectId,period,true,true);
@@ -802,7 +808,7 @@ async function renderGroups(){
   if($("#newGroup"))$("#newGroup").onclick=openNewGroupModal;
   document.querySelectorAll(".add-group-field").forEach(b=>b.onclick=()=>openGroupFieldModal((groups||[]).find(g=>g.id===b.dataset.id)));
   document.querySelectorAll(".del-group").forEach(b=>b.onclick=async()=>{if(!confirm("گروه حذف شود؟"))return;const {error}=await state.sb.from("student_groups").delete().eq("id",b.dataset.id);if(error)return toast(errText(error),true);toast("گروه حذف شد.");renderGroups()});
-  document.querySelectorAll(".leader-score").forEach(b=>leaderScoreModal((groups||[]).find(g=>g.id===b.dataset.id),members||[],fields||[],entries||[]));
+  document.querySelectorAll(".leader-score").forEach(b=>b.onclick=()=>leaderScoreModal((groups||[]).find(g=>g.id===b.dataset.id),members||[],fields||[],entries||[]));
 }
 
 async function openNewGroupModal(){
