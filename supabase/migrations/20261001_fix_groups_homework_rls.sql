@@ -3,6 +3,19 @@
 
 set role postgres;
 
+create or replace function public.students_share_class(p_student uuid)
+returns boolean
+language sql stable security definer set search_path=public
+as $
+  select exists(
+    select 1
+    from public.class_students mine
+    join public.class_students peer on peer.class_id=mine.class_id
+    where mine.student_id=auth.uid()
+      and peer.student_id=p_student
+  )
+$;
+
 create or replace function public.can_view_group(p_group uuid)
 returns boolean
 language sql stable security definer set search_path=public
@@ -119,6 +132,22 @@ as $$
     )
 $$;
 
+-- Allow students to see the names of classmates/group members.
+drop policy if exists profiles_select on public.profiles;
+create policy profiles_select on public.profiles
+for select to authenticated
+using(
+  id=auth.uid()
+  or public.is_manager()
+  or (role='teacher' and public.current_role()='student')
+  or (role='student' and public.current_role()='teacher')
+  or (
+    role='student'
+    and public.current_role()='student'
+    and public.students_share_class(id)
+  )
+);
+
 -- Remove mutually recursive policies and rebuild them through SECURITY DEFINER helpers.
 drop policy if exists groups_read on public.student_groups;
 create policy groups_read on public.student_groups
@@ -207,6 +236,7 @@ using(
   )
 );
 
+grant execute on function public.students_share_class(uuid) to authenticated;
 grant execute on function public.can_view_group(uuid) to authenticated;
 grant execute on function public.can_manage_group(uuid) to authenticated;
 grant execute on function public.teacher_group_matches(uuid,uuid,uuid) to authenticated;
@@ -217,6 +247,7 @@ grant execute on function public.can_read_assignment_file(text) to authenticated
 
 -- Quick integrity checks.
 select
+  has_function_privilege('authenticated','public.students_share_class(uuid)','EXECUTE') as classmates_exec,
   has_function_privilege('authenticated','public.can_view_group(uuid)','EXECUTE') as can_view_group_exec,
   has_function_privilege('authenticated','public.can_manage_group(uuid)','EXECUTE') as can_manage_group_exec,
   has_function_privilege('authenticated','public.teacher_group_matches(uuid,uuid,uuid)','EXECUTE') as teacher_group_matches_exec,
