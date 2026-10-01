@@ -1072,6 +1072,64 @@ function reviewSubmissionModal(sub){
   },"ثبت ارزیابی");
 }
 
+async function showHomeworkAverages(){
+  const [{data:tasks,error:taskError},{data:grades,error:gradeError}]=await Promise.all([
+    state.sb.from("assignments").select("id,class_id,subject_id,title").eq("teacher_id",state.profile.id),
+    state.sb.from("homework_grades").select("assignment_id,student_id,score,source")
+  ]);
+  if(taskError)throw taskError;
+  if(gradeError)throw gradeError;
+  const taskIds=new Set((tasks||[]).map(t=>t.id));
+  const mine=(grades||[]).filter(g=>taskIds.has(g.assignment_id));
+  const grouped=new Map();
+  mine.forEach(g=>{
+    const row=grouped.get(g.student_id)||{student_id:g.student_id,count:0,total:0,zeros:0};
+    row.count++;
+    row.total+=Number(g.score||0);
+    if(Number(g.score||0)===0)row.zeros++;
+    grouped.set(g.student_id,row);
+  });
+  const rows=[...grouped.values()]
+    .sort((a,b)=>userName(a.student_id).localeCompare(userName(b.student_id),"fa"))
+    .map(x=>`<tr><td>${esc(userName(x.student_id))}</td><td>${x.count}</td><td>${x.zeros}</td><td><strong>${x.count?(x.total/x.count).toFixed(2):"0.00"}</strong></td></tr>`)
+    .join("");
+  modal("معدل تکالیف دانش‌آموزان",`<div class="alert alert-info">تکلیف ارسال‌نشده یا تکلیفی که هنوز نمره نهایی نگرفته، در دفتر تکالیف نمره ۰ دارد.</div><br>
+    <div class="table-wrap"><table><thead><tr><th>دانش‌آموز</th><th>تعداد تکلیف</th><th>نمره صفر</th><th>معدل از ۲۰</th></tr></thead><tbody>${rows||'<tr><td colspan="4" class="empty">داده‌ای وجود ندارد.</td></tr>'}</tbody></table></div>`,
+    async()=>$("#modal").close(),"بستن");
+}
+
+async function renderManagerHomeworkGrades(){
+  setPage("نمرات تکالیف","مشاهده و اصلاح نمرات دفتر تکالیف توسط مدیر");
+  const [{data:tasks,error:taskError},{data:grades,error:gradeError}]=await Promise.all([
+    state.sb.from("assignments").select("id,teacher_id,class_id,subject_id,title,due_at").order("created_at",{ascending:false}),
+    state.sb.from("homework_grades").select("assignment_id,student_id,score,source,updated_at")
+  ]);
+  if(taskError)throw taskError;
+  if(gradeError)throw gradeError;
+  const taskMap=new Map((tasks||[]).map(t=>[t.id,t]));
+  const rows=(grades||[]).map(g=>{
+    const t=taskMap.get(g.assignment_id);
+    if(!t)return "";
+    const src={automatic:"خودکار / ارسال‌نشده",submission:"ثبت دبیر",manager:"اصلاح مدیر"}[g.source]||g.source;
+    return `<tr><td>${esc(userName(g.student_id))}</td><td>${esc(t.title)}</td><td>${esc(className(t.class_id))}</td><td>${esc(subjectName(t.subject_id))}</td><td><strong>${g.score}</strong></td><td>${esc(src)}</td><td><button class="btn btn-ghost edit-homework-grade" data-a="${g.assignment_id}" data-s="${g.student_id}" data-score="${g.score}">ویرایش</button></td></tr>`;
+  }).join("");
+  $("#content").innerHTML=`<div class="card"><div class="panel-head"><div><h3>دفتر نمرات تکالیف</h3><p class="muted">برای تکلیف ارسال‌نشده نمره ۰ به‌صورت خودکار ثبت می‌شود.</p></div></div><br>
+    <div class="table-wrap"><table><thead><tr><th>دانش‌آموز</th><th>تکلیف</th><th>کلاس</th><th>درس</th><th>نمره</th><th>منبع</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="7" class="empty">نمره‌ای ثبت نشده است.</td></tr>'}</tbody></table></div></div>`;
+  document.querySelectorAll(".edit-homework-grade").forEach(b=>b.onclick=()=>managerHomeworkGradeModal(b.dataset.a,b.dataset.s,b.dataset.score));
+}
+
+function managerHomeworkGradeModal(assignmentId,studentId,current){
+  modal("اصلاح نمره تکلیف",`<div class="form-grid"><label><span>دانش‌آموز</span><input value="${esc(userName(studentId))}" disabled></label><label><span>نمره از ۲۰</span><input id="managerHwScore" inputmode="decimal" value="${esc(current)}"></label></div>`,async()=>{
+    const score=num($("#managerHwScore").value);
+    if(score===null)throw new Error("نمره الزامی است.");
+    const {error}=await state.sb.from("homework_grades").update({score,source:"manager",updated_by:state.profile.id,updated_at:new Date().toISOString()}).eq("assignment_id",assignmentId).eq("student_id",studentId);
+    if(error)throw error;
+    clearPageCache("homework:");
+    toast("نمره تکلیف توسط مدیر اصلاح شد.");
+    renderManagerHomeworkGrades();
+  },"ثبت نمره");
+}
+
 async function renderGroups(){
   setPage(state.profile.role==="teacher"?"گروه‌های کلاسی":"گروه من",state.profile.role==="teacher"?"سرگروه، اعضا و فیلدهای ارزیابی":"مشاهده اعضا و ثبت امتیاز توسط سرگروه");
   const {groups,members,fields,entries}=await cachedPage("groups:page",20000,async()=>{
