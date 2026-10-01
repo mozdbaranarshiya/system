@@ -13,7 +13,8 @@ const faComponent = {continuous:"تکوینی",final:"پایانی"};
 const state = {
   sb: configured ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null,
   session:null, profile:null, route:"dashboard",
-  profiles:[], grades:[], classes:[], subjects:[], assignments:[], classStudents:[], representatives:[]
+  profiles:[], grades:[], classes:[], subjects:[], assignments:[], classStudents:[], representatives:[],
+  refsLoadedAt:0, refsPromise:null
 };
 
 function toast(message, error=false){
@@ -49,7 +50,13 @@ function subjectName(id){return byId(state.subjects,id)?.title||"-";}
 function userName(id){return byId(state.profiles,id)?.full_name||"-";}
 function modal(title, body, onSubmit, submitText="ذخیره"){
   $("#modalTitle").textContent=title; $("#modalBody").innerHTML=body; $("#modalSubmit").textContent=submitText;
-  $("#modalSubmit").onclick=async()=>{try{await onSubmit(); $("#modal").close();}catch(e){toast(errText(e),true)}};
+  $("#modalSubmit").onclick=async()=>{
+    const btn=$("#modalSubmit"), old=btn.textContent;
+    btn.disabled=true; btn.textContent="در حال ذخیره…";
+    try{await onSubmit(); $("#modal").close();}
+    catch(e){toast(errText(e),true)}
+    finally{btn.disabled=false; btn.textContent=old;}
+  };
   $("#modal").showModal();
 }
 function num(v){if(v===""||v===null||v===undefined)return null; const n=Number(v); if(Number.isNaN(n)||n<0||n>20) throw new Error("نمره باید بین ۰ تا ۲۰ باشد."); return n;}
@@ -90,7 +97,8 @@ async function login(e){
 }
 async function logout(){await state.sb.auth.signOut();showLogin();}
 function showLogin(){
-  state.profile=null; $("#appView").classList.add("hidden");$("#loginView").classList.remove("hidden");
+  state.profile=null; state.refsLoadedAt=0;
+  $("#appView").classList.add("hidden");$("#loginView").classList.remove("hidden");
 }
 async function enterApp(){
   const {data,error}=await state.sb.from("profiles").select("*").eq("id",state.session.user.id).single();
@@ -110,15 +118,36 @@ function buildNav(){
   $("#mainNav").innerHTML=menus[state.profile.role].map(([r,t])=>`<button class="nav-btn" data-route="${r}">${t}</button>`).join("");
   $("#mainNav").querySelectorAll("button").forEach(b=>b.onclick=()=>navigate(b.dataset.route));
 }
-async function refreshRefs(){
-  const queries=[
-    ["profiles","*","full_name"],["grade_levels","*","sort_order"],["classes","*","title"],["subjects","*","title"],
-    ["teacher_assignments","*","id"],["class_students","*","class_id"],["class_representatives","*","class_id"]
-  ];
-  for(const [key,sel,order] of queries){
-    const {data,error}=await state.sb.from(key).select(sel).order(order,{ascending:true});
-    if(!error) state[key==="grade_levels"?"grades":key==="teacher_assignments"?"assignments":key==="class_students"?"classStudents":key==="class_representatives"?"representatives":key]=data||[];
+async function refreshRefs(force=false){
+  const maxAge=15000;
+  if(!force && state.refsLoadedAt && Date.now()-state.refsLoadedAt<maxAge) return;
+  if(state.refsPromise){
+    await state.refsPromise;
+    if(!force && Date.now()-state.refsLoadedAt<maxAge) return;
   }
+
+  const queries=[
+    ["profiles","profiles","*","full_name"],
+    ["grades","grade_levels","*","sort_order"],
+    ["classes","classes","*","title"],
+    ["subjects","subjects","*","title"],
+    ["assignments","teacher_assignments","*","id"],
+    ["classStudents","class_students","*","class_id"],
+    ["representatives","class_representatives","*","class_id"]
+  ];
+
+  state.refsPromise=Promise.all(
+    queries.map(async([stateKey,tableName,select,order])=>{
+      const {data,error}=await state.sb.from(tableName).select(select).order(order,{ascending:true});
+      if(error) throw error;
+      return [stateKey,data||[]];
+    })
+  ).then(results=>{
+    results.forEach(([key,data])=>state[key]=data);
+    state.refsLoadedAt=Date.now();
+  }).finally(()=>{state.refsPromise=null;});
+
+  return state.refsPromise;
 }
 async function navigate(route){
   state.route=route; $(".sidebar").classList.remove("open");
@@ -183,14 +212,14 @@ function userModal(u=null){
     const payload={action:u?"update":"create",user_id:u?.id,national_id:$("#fNid").value.trim(),full_name:$("#fName").value.trim(),role:$("#fRole").value};
     if(u&&$("#fPassword").value)payload.password=$("#fPassword").value;
     await invokeFunction("admin-user",payload);
-    toast("اطلاعات کاربر ذخیره شد.");await refreshRefs();renderUsers();
+    toast("اطلاعات کاربر ذخیره شد.");await refreshRefs(true);renderUsers();
   });
 }
 async function deleteUser(id){
   if(!confirm("این کاربر و داده‌های وابسته حذف شود؟"))return;
   try{
     await invokeFunction("admin-user",{action:"delete",user_id:id});
-    toast("کاربر حذف شد.");await refreshRefs();renderUsers();
+    toast("کاربر حذف شد.");await refreshRefs(true);renderUsers();
   }catch(e){toast(errText(e),true);}
 }
 
@@ -213,10 +242,10 @@ async function renderStructure(){
   document.querySelectorAll(".del-class").forEach(b=>b.onclick=()=>remove("classes",b.dataset.id));
   document.querySelectorAll(".del-subject").forEach(b=>b.onclick=()=>remove("subjects",b.dataset.id));
 }
-function gradeModal(g=null){modal(g?"ویرایش پایه":"پایه جدید",`<div class="form-grid"><label><span>عنوان پایه</span><input id="gTitle" value="${esc(g?.title||"")}"></label><label><span>ترتیب</span><input id="gSort" type="number" value="${g?.sort_order??0}"></label></div>`,async()=>{const payload={title:$("#gTitle").value.trim(),sort_order:Number($("#gSort").value||0)};const q=g?state.sb.from("grade_levels").update(payload).eq("id",g.id):state.sb.from("grade_levels").insert(payload);const {error}=await q;if(error)throw error;await refreshRefs();renderStructure();});}
-function classModal(c=null){modal(c?"ویرایش کلاس":"کلاس جدید",`<div class="form-grid"><label><span>پایه</span><select id="cGrade">${state.grades.map(g=>`<option value="${g.id}" ${c?.grade_id===g.id?"selected":""}>${esc(g.title)}</option>`).join("")}</select></label><label><span>نام کلاس</span><input id="cTitle" value="${esc(c?.title||"")}"></label><label><span>سال تحصیلی</span><input id="cYear" value="${esc(c?.academic_year||"1405-1406")}"></label></div>`,async()=>{const payload={grade_id:$("#cGrade").value,title:$("#cTitle").value.trim(),academic_year:$("#cYear").value.trim()};const q=c?state.sb.from("classes").update(payload).eq("id",c.id):state.sb.from("classes").insert(payload);const {error}=await q;if(error)throw error;await refreshRefs();renderStructure();});}
-function subjectModal(s=null){modal(s?"ویرایش درس":"درس جدید",`<div class="form-grid"><label><span>پایه</span><select id="sGrade">${state.grades.map(g=>`<option value="${g.id}" ${s?.grade_id===g.id?"selected":""}>${esc(g.title)}</option>`).join("")}</select></label><label><span>نام درس</span><input id="sTitle" value="${esc(s?.title||"")}"></label></div>`,async()=>{const payload={grade_id:$("#sGrade").value,title:$("#sTitle").value.trim()};const q=s?state.sb.from("subjects").update(payload).eq("id",s.id):state.sb.from("subjects").insert(payload);const {error}=await q;if(error)throw error;await refreshRefs();renderStructure();});}
-async function remove(tbl,id){if(!confirm("این مورد حذف شود؟ داده‌های وابسته نیز ممکن است حذف شوند."))return;const {error}=await state.sb.from(tbl).delete().eq("id",id);if(error)return toast(errText(error),true);toast("حذف شد.");await refreshRefs();renderStructure();}
+function gradeModal(g=null){modal(g?"ویرایش پایه":"پایه جدید",`<div class="form-grid"><label><span>عنوان پایه</span><input id="gTitle" value="${esc(g?.title||"")}"></label><label><span>ترتیب</span><input id="gSort" type="number" value="${g?.sort_order??0}"></label></div>`,async()=>{const payload={title:$("#gTitle").value.trim(),sort_order:Number($("#gSort").value||0)};const q=g?state.sb.from("grade_levels").update(payload).eq("id",g.id):state.sb.from("grade_levels").insert(payload);const {error}=await q;if(error)throw error;await refreshRefs(true);renderStructure();});}
+function classModal(c=null){modal(c?"ویرایش کلاس":"کلاس جدید",`<div class="form-grid"><label><span>پایه</span><select id="cGrade">${state.grades.map(g=>`<option value="${g.id}" ${c?.grade_id===g.id?"selected":""}>${esc(g.title)}</option>`).join("")}</select></label><label><span>نام کلاس</span><input id="cTitle" value="${esc(c?.title||"")}"></label><label><span>سال تحصیلی</span><input id="cYear" value="${esc(c?.academic_year||"1405-1406")}"></label></div>`,async()=>{const payload={grade_id:$("#cGrade").value,title:$("#cTitle").value.trim(),academic_year:$("#cYear").value.trim()};const q=c?state.sb.from("classes").update(payload).eq("id",c.id):state.sb.from("classes").insert(payload);const {error}=await q;if(error)throw error;await refreshRefs(true);renderStructure();});}
+function subjectModal(s=null){modal(s?"ویرایش درس":"درس جدید",`<div class="form-grid"><label><span>پایه</span><select id="sGrade">${state.grades.map(g=>`<option value="${g.id}" ${s?.grade_id===g.id?"selected":""}>${esc(g.title)}</option>`).join("")}</select></label><label><span>نام درس</span><input id="sTitle" value="${esc(s?.title||"")}"></label></div>`,async()=>{const payload={grade_id:$("#sGrade").value,title:$("#sTitle").value.trim()};const q=s?state.sb.from("subjects").update(payload).eq("id",s.id):state.sb.from("subjects").insert(payload);const {error}=await q;if(error)throw error;await refreshRefs(true);renderStructure();});}
+async function remove(tbl,id){if(!confirm("این مورد حذف شود؟ داده‌های وابسته نیز ممکن است حذف شوند."))return;const {error}=await state.sb.from(tbl).delete().eq("id",id);if(error)return toast(errText(error),true);toast("حذف شد.");await refreshRefs(true);renderStructure();}
 
 async function renderAssignments(){
   setPage("تخصیص‌ها و نماینده کلاس","عضویت دانش‌آموز، معلم هر درس و نماینده کلاس");
@@ -229,12 +258,12 @@ async function renderAssignments(){
   <div class="card"><div class="panel-head"><h3>معلم ↔ کلاس ↔ درس</h3><button class="btn btn-primary" id="addAsg">+ تخصیص</button></div>${table(["معلم","کلاس","درس",""],ar)}</div>
   <div class="card"><div class="panel-head"><h3>دانش‌آموزان کلاس</h3><button class="btn btn-primary" id="addCs">+ عضویت</button></div>${table(["دانش‌آموز","کلاس",""],csr)}</div>
   <div class="card"><div class="panel-head"><h3>نماینده کلاس</h3><button class="btn btn-primary" id="addRep">+ نماینده</button></div>${table(["کلاس","نماینده",""],rr)}</div></div>`;
-  $("#addAsg").onclick=()=>modal("تخصیص معلم",`<div class="form-grid"><label><span>معلم</span><select id="aTeacher">${teachers.map(x=>`<option value="${x.id}">${esc(x.full_name)}</option>`).join("")}</select></label><label><span>کلاس</span><select id="aClass">${state.classes.map(x=>`<option value="${x.id}">${esc(className(x.id))}</option>`).join("")}</select></label><label><span>درس</span><select id="aSubject">${state.subjects.map(x=>`<option value="${x.id}">${esc(x.title)}</option>`).join("")}</select></label></div>`,async()=>{const {error}=await state.sb.from("teacher_assignments").insert({teacher_id:$("#aTeacher").value,class_id:$("#aClass").value,subject_id:$("#aSubject").value});if(error)throw error;await refreshRefs();renderAssignments();});
-  $("#addCs").onclick=()=>modal("افزودن دانش‌آموز به کلاس",`<div class="form-grid"><label><span>دانش‌آموز</span><select id="csStudent">${students.map(x=>`<option value="${x.id}">${esc(x.full_name)}</option>`).join("")}</select></label><label><span>کلاس</span><select id="csClass">${state.classes.map(x=>`<option value="${x.id}">${esc(className(x.id))}</option>`).join("")}</select></label></div>`,async()=>{const {error}=await state.sb.from("class_students").insert({student_id:$("#csStudent").value,class_id:$("#csClass").value});if(error)throw error;await refreshRefs();renderAssignments();});
-  $("#addRep").onclick=()=>modal("ثبت نماینده کلاس",`<div class="form-grid"><label><span>کلاس</span><select id="rClass">${state.classes.map(x=>`<option value="${x.id}">${esc(className(x.id))}</option>`).join("")}</select></label><label><span>دانش‌آموز</span><select id="rStudent">${students.map(x=>`<option value="${x.id}">${esc(x.full_name)}</option>`).join("")}</select></label></div>`,async()=>{const {error}=await state.sb.from("class_representatives").upsert({class_id:$("#rClass").value,student_id:$("#rStudent").value});if(error)throw error;await refreshRefs();renderAssignments();});
-  document.querySelectorAll(".del-asg").forEach(b=>b.onclick=async()=>{await state.sb.from("teacher_assignments").delete().eq("id",b.dataset.id);await refreshRefs();renderAssignments();});
-  document.querySelectorAll(".del-cs").forEach(b=>b.onclick=async()=>{await state.sb.from("class_students").delete().eq("class_id",b.dataset.c).eq("student_id",b.dataset.s);await refreshRefs();renderAssignments();});
-  document.querySelectorAll(".del-rep").forEach(b=>b.onclick=async()=>{await state.sb.from("class_representatives").delete().eq("class_id",b.dataset.c);await refreshRefs();renderAssignments();});
+  $("#addAsg").onclick=()=>modal("تخصیص معلم",`<div class="form-grid"><label><span>معلم</span><select id="aTeacher">${teachers.map(x=>`<option value="${x.id}">${esc(x.full_name)}</option>`).join("")}</select></label><label><span>کلاس</span><select id="aClass">${state.classes.map(x=>`<option value="${x.id}">${esc(className(x.id))}</option>`).join("")}</select></label><label><span>درس</span><select id="aSubject">${state.subjects.map(x=>`<option value="${x.id}">${esc(x.title)}</option>`).join("")}</select></label></div>`,async()=>{const {error}=await state.sb.from("teacher_assignments").insert({teacher_id:$("#aTeacher").value,class_id:$("#aClass").value,subject_id:$("#aSubject").value});if(error)throw error;await refreshRefs(true);renderAssignments();});
+  $("#addCs").onclick=()=>modal("افزودن دانش‌آموز به کلاس",`<div class="form-grid"><label><span>دانش‌آموز</span><select id="csStudent">${students.map(x=>`<option value="${x.id}">${esc(x.full_name)}</option>`).join("")}</select></label><label><span>کلاس</span><select id="csClass">${state.classes.map(x=>`<option value="${x.id}">${esc(className(x.id))}</option>`).join("")}</select></label></div>`,async()=>{const {error}=await state.sb.from("class_students").insert({student_id:$("#csStudent").value,class_id:$("#csClass").value});if(error)throw error;await refreshRefs(true);renderAssignments();});
+  $("#addRep").onclick=()=>modal("ثبت نماینده کلاس",`<div class="form-grid"><label><span>کلاس</span><select id="rClass">${state.classes.map(x=>`<option value="${x.id}">${esc(className(x.id))}</option>`).join("")}</select></label><label><span>دانش‌آموز</span><select id="rStudent">${students.map(x=>`<option value="${x.id}">${esc(x.full_name)}</option>`).join("")}</select></label></div>`,async()=>{const {error}=await state.sb.from("class_representatives").upsert({class_id:$("#rClass").value,student_id:$("#rStudent").value});if(error)throw error;await refreshRefs(true);renderAssignments();});
+  document.querySelectorAll(".del-asg").forEach(b=>b.onclick=async()=>{await state.sb.from("teacher_assignments").delete().eq("id",b.dataset.id);await refreshRefs(true);renderAssignments();});
+  document.querySelectorAll(".del-cs").forEach(b=>b.onclick=async()=>{await state.sb.from("class_students").delete().eq("class_id",b.dataset.c).eq("student_id",b.dataset.s);await refreshRefs(true);renderAssignments();});
+  document.querySelectorAll(".del-rep").forEach(b=>b.onclick=async()=>{await state.sb.from("class_representatives").delete().eq("class_id",b.dataset.c);await refreshRefs(true);renderAssignments();});
 }
 
 async function renderScores(){
@@ -273,14 +302,27 @@ async function loadScoreGrid(){
 }
 async function saveScores(classId,subjectId,period){
   const rows=[...document.querySelectorAll("#scoreArea tbody tr")];
-  for(const tr of rows){
-    const {data:existing}=await state.sb.from("scores").select("continuous_score,final_score").eq("student_id",tr.dataset.student).eq("class_id",classId).eq("subject_id",subjectId).eq("period",period).maybeSingle();
-    const cont=tr.querySelector(".cont").disabled?existing?.continuous_score:num(tr.querySelector(".cont").value);
-    const fin=tr.querySelector(".fin").disabled?existing?.final_score:num(tr.querySelector(".fin").value);
-    const {error}=await state.sb.rpc("save_score",{p_student:tr.dataset.student,p_class:classId,p_subject:subjectId,p_period:period,p_continuous:cont,p_final:fin});
-    if(error)throw error;
+  const jobs=rows.map(tr=>({
+    p_student:tr.dataset.student,
+    p_class:classId,
+    p_subject:subjectId,
+    p_period:period,
+    p_continuous:num(tr.querySelector(".cont").value),
+    p_final:num(tr.querySelector(".fin").value)
+  }));
+
+  // درخواست‌ها در دسته‌های کوچک موازی می‌شوند تا هم سریع باشد و هم به API فشار ناگهانی وارد نشود.
+  const batchSize=10;
+  for(let i=0;i<jobs.length;i+=batchSize){
+    const results=await Promise.all(
+      jobs.slice(i,i+batchSize).map(args=>state.sb.rpc("save_score",args))
+    );
+    const failed=results.find(r=>r.error);
+    if(failed?.error) throw failed.error;
   }
-  toast("نمرات به‌صورت موقت ذخیره شدند.");await loadScoreGrid();
+
+  toast("نمرات به‌صورت موقت ذخیره شدند.");
+  await loadScoreGrid();
 }
 function chooseLock(classId,subjectId,period,locked,isManager){
   const options=isManager?'<option value="continuous">تکوینی</option><option value="final">پایانی</option><option value="both">هر دو</option>':'<option value="continuous">تکوینی</option><option value="final">پایانی</option>';
@@ -343,7 +385,12 @@ async function renderObjections(){
   if(state.profile.role==="student")q=q.eq("student_id",state.profile.id);
   const {data,error}=await q;if(error)throw error;
   const scores={};
-  for(const o of data||[]){if(!scores[o.score_id]){const {data:s}=await state.sb.from("scores").select("*").eq("id",o.score_id).single();scores[o.score_id]=s;}}
+  const scoreIds=[...new Set((data||[]).map(o=>o.score_id).filter(Boolean))];
+  if(scoreIds.length){
+    const {data:scoreRows,error:scoreError}=await state.sb.from("scores").select("*").in("id",scoreIds);
+    if(scoreError)throw scoreError;
+    (scoreRows||[]).forEach(s=>scores[s.id]=s);
+  }
   const visible=(data||[]).filter(o=>{if(state.profile.role!=="teacher")return true;const s=scores[o.score_id];return s&&state.assignments.some(a=>a.teacher_id===state.profile.id&&a.class_id===s.class_id&&a.subject_id===s.subject_id);});
   const rows=visible.map(o=>{const s=scores[o.score_id]||{};const statusClass=o.status==="pending"?"warn":o.status==="rejected"?"danger":"";
     const actions=state.profile.role==="teacher"&&o.status==="pending"?`<div class="actions"><button class="btn btn-primary approve-obj" data-id="${o.id}">تأیید</button><button class="btn btn-ghost danger reject-obj" data-id="${o.id}">رد</button></div>`:"";
