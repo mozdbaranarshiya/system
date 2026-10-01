@@ -737,7 +737,7 @@ function openStudentSubmission(task,existing){
   },"ارسال فایل");
 }
 
-async async function openStoredFile(path){
+async function openStoredFile(path){
   const {data,error}=await state.sb.storage.from("assignment-files").createSignedUrl(path,120);
   if(error)return toast(errText(error),true);
   window.open(data.signedUrl,"_blank","noopener");
