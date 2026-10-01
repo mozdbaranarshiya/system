@@ -294,3 +294,25 @@ end $$;
 
 grant execute on function public.save_score(uuid,uuid,uuid,text,numeric,numeric) to authenticated;
 grant execute on function public.set_score_lock(uuid,uuid,text,text,boolean) to authenticated;
+
+
+-- Required PostgREST privileges.
+-- RLS policies above still decide which rows each authenticated user may access.
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on table
+  public.profiles,
+  public.grade_levels,
+  public.classes,
+  public.subjects,
+  public.class_students,
+  public.teacher_assignments,
+  public.class_representatives,
+  public.scores,
+  public.announcements,
+  public.objections
+to authenticated;
+
+grant execute on function public.current_role() to authenticated;
+grant execute on function public.is_manager() to authenticated;
+grant execute on function public.teacher_has_access(uuid,uuid) to authenticated;
+grant execute on function public.student_in_class(uuid) to authenticated;
