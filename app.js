@@ -27,6 +27,18 @@ function errText(e){
     CANNOT_DELETE_SELF:"مدیر نمی‌تواند حساب خودش را حذف کند."};
   return map[m]||m;
 }
+async function invokeFunction(name, body){
+  const {data,error}=await state.sb.functions.invoke(name,{body});
+  if(error){
+    let details=null;
+    try{
+      if(error.context && typeof error.context.json==="function") details=await error.context.json();
+    }catch(_){}
+    throw new Error(details?.error||details?.message||error.message||"خطا در اجرای Edge Function");
+  }
+  if(!data?.ok) throw new Error(data?.error||"عملیات سمت سرور ناموفق بود.");
+  return data;
+}
 function roleBadge(role){return `<span class="badge">${faRole[role]||esc(role)}</span>`;}
 function byId(arr,id){return arr.find(x=>x.id===id);}
 function className(id){const c=byId(state.classes,id); const g=c&&byId(state.grades,c.grade_id); return c?`${g?g.title+" - ":""}${c.title}`:"-";}
@@ -165,16 +177,16 @@ function userModal(u=null){
   </div>`,async()=>{
     const payload={action:u?"update":"create",user_id:u?.id,national_id:$("#fNid").value.trim(),full_name:$("#fName").value.trim(),role:$("#fRole").value};
     if(u&&$("#fPassword").value)payload.password=$("#fPassword").value;
-    const {data,error}=await state.sb.functions.invoke("admin-user",{body:payload});
-    if(error||!data?.ok)throw new Error(data?.error||error?.message);
+    await invokeFunction("admin-user",payload);
     toast("اطلاعات کاربر ذخیره شد.");await refreshRefs();renderUsers();
   });
 }
 async function deleteUser(id){
   if(!confirm("این کاربر و داده‌های وابسته حذف شود؟"))return;
-  const {data,error}=await state.sb.functions.invoke("admin-user",{body:{action:"delete",user_id:id}});
-  if(error||!data?.ok)return toast(errText(data?.error||error),true);
-  toast("کاربر حذف شد.");await refreshRefs();renderUsers();
+  try{
+    await invokeFunction("admin-user",{action:"delete",user_id:id});
+    toast("کاربر حذف شد.");await refreshRefs();renderUsers();
+  }catch(e){toast(errText(e),true);}
 }
 
 async function renderStructure(){
