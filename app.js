@@ -160,7 +160,8 @@ function errText(e){
     NO_SELECTION:"حداقل یک نمره را برای بایگانی انتخاب کنید.",
     NOTHING_ARCHIVED:"هیچ نمره‌ای به بایگانی منتقل نشد.",
     MFA_REQUIRED:"برای عملیات مدیریتی باید کد دومرحله‌ای تأیید شود.",
-    MFA_LEVEL_NOT_UPGRADED:"سطح امنیت نشست مدیر به AAL2 ارتقا پیدا نکرد."};
+    MFA_LEVEL_NOT_UPGRADED:"سطح امنیت نشست مدیر به AAL2 ارتقا پیدا نکرد.",
+    MFA_ENROLL_INCOMPLETE:"اطلاعات راه‌اندازی Ente Auth کامل دریافت نشد. دوباره وارد شوید."};
   return map[m]||m;
 }
 async function invokeFunction(name, body){
@@ -246,18 +247,34 @@ async function ensureManagerMfa(){
     try{await state.sb.auth.mfa.unenroll({factorId:factor.id})}catch(_){}
   }
 
-  const {data:enrolled,error:enrollError}=await state.sb.auth.mfa.enroll({
+  const uniqueName=`مدیر سامانه - ${Date.now().toString(36)}`;
+  let {data:enrolled,error:enrollError}=await state.sb.auth.mfa.enroll({
     factorType:"totp",
-    friendlyName:"مدیر سامانه آموزش و پرورش اصفهان"
+    friendlyName:uniqueName
   });
+
+  // اگر به هر دلیل Supabase هنوز روی نام عامل قبلی تعارض گزارش کرد،
+  // یک بار دیگر با نام کاملاً تصادفی تلاش می‌کنیم.
+  if(enrollError && /friendly name|already exists/i.test(enrollError.message||"")){
+    const retry=await state.sb.auth.mfa.enroll({
+      factorType:"totp",
+      friendlyName:`مدیر سامانه - ${crypto.randomUUID().slice(0,8)}`
+    });
+    enrolled=retry.data;
+    enrollError=retry.error;
+  }
+
   if(enrollError)throw enrollError;
+  if(!enrolled?.id||!enrolled?.totp?.qr_code||!enrolled?.totp?.secret){
+    throw new Error("MFA_ENROLL_INCOMPLETE");
+  }
 
   return waitForManagerMfa({
     mode:"setup",
     factorId:enrolled.id,
-    qr:enrolled.totp?.qr_code||"",
-    secret:enrolled.totp?.secret||"",
-    uri:enrolled.totp?.uri||""
+    qr:enrolled.totp.qr_code,
+    secret:enrolled.totp.secret,
+    uri:enrolled.totp.uri||""
   });
 }
 function waitForManagerMfa({mode,factorId,qr="",secret="",uri=""}){
