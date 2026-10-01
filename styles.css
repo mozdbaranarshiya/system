@@ -298,11 +298,12 @@ textarea{line-height:1.9}
 .report-meta{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:#ccd7d5;border:1px solid #ccd7d5;margin:15px 0}
 .report-meta span{background:#fff;padding:9px 10px;font-size:.78rem}
 .report-table-wrap{border-radius:0;border:1px solid #596b69}
-.report-table{min-width:900px}
+.report-table{min-width:1080px}
 .report-table th,.report-table td{border:1px solid #8e9b99;text-align:center;padding:7px 6px;font-size:.75rem}
 .report-table th{background:#edf1f0;color:#203f3c;font-weight:800}
 .report-table .subject-cell{text-align:right;font-weight:700}
-.report-table .annual-score{font-weight:900;background:#f7fbfa}
+.report-table .term-score{font-weight:800;background:#f2f8f7;color:#225d57}
+.report-table .annual-score{font-weight:900;background:#eaf6f3;color:#164f49}
 .report-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:#bfcac8;border:1px solid #bfcac8;margin-top:14px}
 .report-summary>div{background:#fff;padding:12px;text-align:center;display:grid;gap:4px}
 .report-summary small{color:var(--muted)}.report-summary strong{font-size:1.12rem}
