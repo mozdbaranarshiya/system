@@ -48,12 +48,28 @@ function setupPersianDigits(){
       try{el.setSelectionRange(pos,pos)}catch(_){}
     }
   },true);
-  const observer=new MutationObserver(items=>{
-    items.forEach(m=>m.addedNodes.forEach(n=>{
+  const pendingNodes=new Set();
+  let persianizeScheduled=false;
+  const flushPersianNodes=()=>{
+    persianizeScheduled=false;
+    const nodes=[...pendingNodes];
+    pendingNodes.clear();
+    nodes.forEach(n=>{
+      if(!n?.isConnected)return;
       if(n.nodeType===Node.TEXT_NODE){
-        const next=toFaDigits(n.nodeValue); if(next!==n.nodeValue)n.nodeValue=next;
-      }else if(n.nodeType===Node.ELEMENT_NODE)persianizeNode(n);
-    }));
+        const next=toFaDigits(n.nodeValue);
+        if(next!==n.nodeValue)n.nodeValue=next;
+      }else if(n.nodeType===Node.ELEMENT_NODE){
+        persianizeNode(n);
+      }
+    });
+  };
+  const observer=new MutationObserver(items=>{
+    items.forEach(m=>m.addedNodes.forEach(n=>pendingNodes.add(n)));
+    if(!persianizeScheduled){
+      persianizeScheduled=true;
+      requestAnimationFrame(flushPersianNodes);
+    }
   });
   observer.observe(document.body,{childList:true,subtree:true});
   persianizeNode(document.body);
@@ -203,7 +219,7 @@ function buildNav(){
   $("#mainNav").querySelectorAll("button").forEach(b=>b.onclick=()=>navigate(b.dataset.route));
 }
 async function refreshRefs(force=false){
-  const maxAge=120000;
+  const maxAge=60000;
   if(!force && state.refsLoadedAt && Date.now()-state.refsLoadedAt<maxAge) return;
   if(state.refsPromise){
     await state.refsPromise;
