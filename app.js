@@ -95,48 +95,42 @@ function loadExternalScript(src,globalName){
   return promise;
 }
 async function uploadAssignmentFile(path,file,onProgress=()=>{}){
-  if(file.size<=6*1024*1024){
-    onProgress(.08);
-    const {error}=await state.sb.storage.from("assignment-files").upload(path,file,{
-      upsert:false,
-      cacheControl:"3600",
-      contentType:file.type||"application/octet-stream"
-    });
-    if(error)throw error;
-    onProgress(1);
-    return;
-  }
-
-  await loadExternalScript("https://cdn.jsdelivr.net/npm/tus-js-client@4.3.1/dist/tus.min.js","tus");
   const {data:{session}}=await state.sb.auth.getSession();
   if(!session?.access_token)throw new Error("نشست کاربری معتبر نیست.");
 
+  const safePath=path.split("/").map(encodeURIComponent).join("/");
+  const url=`${cfg.SUPABASE_URL.replace(/\/$/,"")}/storage/v1/object/assignment-files/${safePath}`;
+
   await new Promise((resolve,reject)=>{
-    const upload=new window.tus.Upload(file,{
-      endpoint:`${cfg.SUPABASE_URL.replace(/\/$/,"")}/storage/v1/upload/resumable`,
-      retryDelays:[0,1000,3000,5000],
-      headers:{
-        authorization:`Bearer ${session.access_token}`,
-        apikey:cfg.SUPABASE_ANON_KEY,
-        "x-upsert":"false"
-      },
-      uploadDataDuringCreation:true,
-      removeFingerprintOnSuccess:true,
-      chunkSize:6*1024*1024,
-      metadata:{
-        bucketName:"assignment-files",
-        objectName:path,
-        contentType:file.type||"application/octet-stream",
-        cacheControl:"3600"
-      },
-      onError:reject,
-      onProgress:(sent,total)=>onProgress(total?sent/total:0),
-      onSuccess:resolve
-    });
-    upload.findPreviousUploads().then(prev=>{
-      if(prev?.length)upload.resumeFromPreviousUpload(prev[0]);
-      upload.start();
-    }).catch(()=>upload.start());
+    const xhr=new XMLHttpRequest();
+    xhr.open("POST",url,true);
+    xhr.setRequestHeader("Authorization",`Bearer ${session.access_token}`);
+    xhr.setRequestHeader("apikey",cfg.SUPABASE_ANON_KEY);
+    xhr.setRequestHeader("x-upsert","false");
+    xhr.setRequestHeader("cache-control","3600");
+    xhr.setRequestHeader("content-type",file.type||"application/octet-stream");
+    xhr.timeout=120000;
+
+    xhr.upload.onprogress=e=>{
+      if(e.lengthComputable)onProgress(e.loaded/e.total);
+    };
+    xhr.onerror=()=>reject(new Error("UPLOAD_NETWORK_ERROR"));
+    xhr.ontimeout=()=>reject(new Error("UPLOAD_TIMEOUT"));
+    xhr.onload=()=>{
+      if(xhr.status>=200&&xhr.status<300){
+        onProgress(1);
+        resolve();
+        return;
+      }
+      let message=`UPLOAD_FAILED: HTTP ${xhr.status}`;
+      try{
+        const data=JSON.parse(xhr.responseText||"{}");
+        message=data.message||data.error||message;
+      }catch(_){}
+      reject(new Error(message));
+    };
+    onProgress(.01);
+    xhr.send(file);
   });
 }
 async function ensureSheetJS(){
@@ -160,7 +154,11 @@ function errText(e){
     FEEDBACK_REQUIRED:"برای وضعیت «نیاز به اصلاح» توضیح دبیر الزامی است.",
     INVALID_FILE_PATH:"مسیر فایل معتبر نیست.",
     INVALID_SCORE:"نمره واردشده معتبر نیست.",
-    INVALID_STATUS:"وضعیت انتخاب‌شده معتبر نیست."};
+    INVALID_STATUS:"وضعیت انتخاب‌شده معتبر نیست.",
+    UPLOAD_NETWORK_ERROR:"ارتباط هنگام آپلود قطع شد. دوباره تلاش کنید.",
+    UPLOAD_TIMEOUT:"آپلود بیش از حد طول کشید. اتصال اینترنت را بررسی کنید.",
+    NO_SELECTION:"حداقل یک نمره را برای بایگانی انتخاب کنید.",
+    NOTHING_ARCHIVED:"هیچ نمره‌ای به بایگانی منتقل نشد."};
   return map[m]||m;
 }
 async function invokeFunction(name, body){
@@ -247,6 +245,47 @@ function showLogin(){
   state.profile=null; state.refsLoadedAt=0; state.pageCache.clear();
   $("#appView").classList.add("hidden");$("#loginView").classList.remove("hidden");
 }
+function refsStorageKey(){return state.session?.user?.id?`school-refs-v610:${state.session.user.id}`:null;}
+function applyRefBundle(data){
+  if(!data||typeof data!=="object")return false;
+  const keys=["profiles","grades","classes","subjects","assignments","classStudents","representatives"];
+  if(!keys.every(k=>Array.isArray(data[k])))return false;
+  keys.forEach(k=>state[k]=data[k]);
+  state.refsLoadedAt=Date.now();
+  return true;
+}
+function loadRefsFromSession(){
+  const key=refsStorageKey();if(!key)return false;
+  try{
+    const raw=sessionStorage.getItem(key);if(!raw)return false;
+    const parsed=JSON.parse(raw);
+    if(!parsed?.savedAt||Date.now()-parsed.savedAt>10*60*1000)return false;
+    return applyRefBundle(parsed.data);
+  }catch(_){return false}
+}
+function saveRefsToSession(){
+  const key=refsStorageKey();if(!key)return;
+  try{
+    sessionStorage.setItem(key,JSON.stringify({
+      savedAt:Date.now(),
+      data:{
+        profiles:state.profiles,grades:state.grades,classes:state.classes,subjects:state.subjects,
+        assignments:state.assignments,classStudents:state.classStudents,representatives:state.representatives
+      }
+    }));
+  }catch(_){}
+}
+function setRoleLabel(){
+  const data=state.profile;if(!data)return;
+  if(data.role==="student"){
+    const repClasses=state.representatives
+      .filter(r=>r.student_id===data.id)
+      .map(r=>byId(state.classes,r.class_id)?.title||className(r.class_id))
+      .filter(Boolean);
+    $("#userRole").textContent=repClasses.length?`نماینده کلاس (${repClasses.join("، ")})`:faRole[data.role];
+  }else $("#userRole").textContent=faRole[data.role];
+}
+
 async function enterApp(){
   const {data,error}=await state.sb.from("profiles").select("*").eq("id",state.session.user.id).single();
   if(error||!data?.active){await state.sb.auth.signOut();return toast("حساب کاربری فعال نیست.",true);}
@@ -254,19 +293,23 @@ async function enterApp(){
   $("#loginView").classList.add("hidden");$("#appView").classList.remove("hidden");
   $("#userName").textContent=data.full_name;
   $("#avatar").textContent=(data.full_name||"ک").trim().charAt(0);
-  await refreshRefs();
-  if(data.role==="student"){
-    const repClasses=state.representatives
-      .filter(r=>r.student_id===data.id)
-      .map(r=>byId(state.classes,r.class_id)?.title||className(r.class_id))
-      .filter(Boolean);
-    $("#userRole").textContent=repClasses.length
-      ? `نماینده کلاس (${repClasses.join("، ")})`
-      : faRole[data.role];
-  }else{
-    $("#userRole").textContent=faRole[data.role];
+
+  const warm=loadRefsFromSession();
+  if(warm){
+    setRoleLabel();
+    buildNav();
+    navigate("dashboard");
+    refreshRefs(true).then(()=>{
+      setRoleLabel();
+      buildNav();
+    }).catch(()=>{});
+    return;
   }
-  buildNav(); navigate("dashboard");
+
+  await refreshRefs();
+  setRoleLabel();
+  buildNav();
+  navigate("dashboard");
 }
 function buildNav(){
   const studentMenu=[
@@ -283,33 +326,39 @@ function buildNav(){
   $("#mainNav").querySelectorAll("button").forEach(b=>b.onclick=()=>navigate(b.dataset.route));
 }
 async function refreshRefs(force=false){
-  const maxAge=60000;
-  if(!force && state.refsLoadedAt && Date.now()-state.refsLoadedAt<maxAge) return;
+  const maxAge=5*60*1000;
+  if(!force&&state.refsLoadedAt&&Date.now()-state.refsLoadedAt<maxAge)return;
   if(state.refsPromise){
     await state.refsPromise;
-    if(!force && Date.now()-state.refsLoadedAt<maxAge) return;
+    if(!force&&Date.now()-state.refsLoadedAt<maxAge)return;
   }
 
-  const queries=[
-    ["profiles","profiles","id,national_id,full_name,role,active","full_name"],
-    ["grades","grade_levels","id,title,sort_order","sort_order"],
-    ["classes","classes","id,grade_id,title,academic_year","title"],
-    ["subjects","subjects","id,grade_id,title","title"],
-    ["assignments","teacher_assignments","id,teacher_id,class_id,subject_id","id"],
-    ["classStudents","class_students","class_id,student_id","class_id"],
-    ["representatives","class_representatives","class_id,student_id","class_id"]
-  ];
+  state.refsPromise=(async()=>{
+    const {data,error}=await state.sb.rpc("get_app_bootstrap");
+    if(!error&&applyRefBundle(data)){
+      saveRefsToSession();
+      return;
+    }
 
-  state.refsPromise=Promise.all(
-    queries.map(async([stateKey,tableName,select,order])=>{
+    // سازگاری با دیتابیس قبل از اجرای migration نسخه ۶.۱.۰
+    const queries=[
+      ["profiles","profiles","id,national_id,full_name,role,active","full_name"],
+      ["grades","grade_levels","id,title,sort_order","sort_order"],
+      ["classes","classes","id,grade_id,title,academic_year","title"],
+      ["subjects","subjects","id,grade_id,title","title"],
+      ["assignments","teacher_assignments","id,teacher_id,class_id,subject_id","id"],
+      ["classStudents","class_students","class_id,student_id","class_id"],
+      ["representatives","class_representatives","class_id,student_id","class_id"]
+    ];
+    const results=await Promise.all(queries.map(async([stateKey,tableName,select,order])=>{
       const {data,error}=await state.sb.from(tableName).select(select).order(order,{ascending:true});
-      if(error) throw error;
+      if(error)throw error;
       return [stateKey,data||[]];
-    })
-  ).then(results=>{
+    }));
     results.forEach(([key,data])=>state[key]=data);
     state.refsLoadedAt=Date.now();
-  }).finally(()=>{state.refsPromise=null;});
+    saveRefsToSession();
+  })().finally(()=>{state.refsPromise=null;});
 
   return state.refsPromise;
 }
@@ -1223,18 +1272,36 @@ async function showGroupScoresModal(group){
   if(entryError)throw entryError;
   const fieldMap=new Map((fields||[]).map(f=>[f.id,f]));
   const active=(entries||[]).filter(e=>fieldMap.has(e.field_id));
-  const rows=active.map(e=>`<tr><td><input class="archive-score-check" type="checkbox" data-field="${e.field_id}" data-student="${e.student_id}"></td><td>${esc(userName(e.student_id))}</td><td>${esc(fieldMap.get(e.field_id)?.title||"-")}</td><td>${e.score}</td><td>${esc(userName(e.submitted_by))}</td><td>${faDateTime(e.updated_at)}</td></tr>`).join("");
-  modal(`نمرات سرگروه — ${group.name}`,`<div class="panel-head"><div><p class="muted">نمرات موردنظر را انتخاب و به بایگانی منتقل کنید.</p></div><button type="button" class="btn btn-ghost" id="selectAllGroupScores">انتخاب همه</button></div><br>
-    <div class="table-wrap"><table><thead><tr><th></th><th>دانش‌آموز</th><th>فیلد</th><th>نمره</th><th>ثبت‌کننده</th><th>زمان</th></tr></thead><tbody>${rows||'<tr><td colspan="6" class="empty">نمره فعالی ثبت نشده است.</td></tr>'}</tbody></table></div>`,async()=>{
-      const selected=[...document.querySelectorAll(".archive-score-check:checked")].map(x=>({field_id:x.dataset.field,student_id:x.dataset.student}));
-      if(!selected.length)throw new Error("حداقل یک نمره را انتخاب کنید.");
-      const {data,error}=await state.sb.rpc("archive_group_scores",{p_group:group.id,p_entries:selected});
+  const rows=active.map(e=>`<tr><td><input class="archive-score-check" type="checkbox" data-key="${e.field_id}|${e.student_id}"></td><td>${esc(userName(e.student_id))}</td><td>${esc(fieldMap.get(e.field_id)?.title||"-")}</td><td><strong>${e.score}</strong></td><td>${esc(userName(e.submitted_by))}</td><td>${faDateTime(e.updated_at)}</td></tr>`).join("");
+  modal(`نمرات سرگروه — ${group.name}`,`<div class="panel-head"><div><p class="muted">نمرات موردنظر را انتخاب کنید؛ پس از بایگانی از لیست فعال حذف می‌شوند.</p></div><button type="button" class="btn btn-ghost" id="selectAllGroupScores">انتخاب همه</button></div><br>
+    <div class="table-wrap"><table><thead><tr><th></th><th>دانش‌آموز</th><th>فیلد</th><th>نمره</th><th>ثبت‌کننده</th><th>زمان</th></tr></thead><tbody>${rows||'<tr><td colspan="6" class="empty">نمره فعالی ثبت نشده است.</td></tr>'}</tbody></table></div>
+    <div class="archive-action-bar"><span id="archiveSelectionCount">۰ مورد انتخاب شده</span><button type="button" class="btn btn-primary" id="archiveSelectedScores" ${active.length?"":"disabled"}>انتقال انتخاب‌شده‌ها به بایگانی</button></div>`,
+    async()=>$("#modal").close(),"بستن");
+
+  const checks=()=>[...document.querySelectorAll(".archive-score-check")];
+  const updateCount=()=>$("#archiveSelectionCount").textContent=`${checks().filter(x=>x.checked).length} مورد انتخاب شده`;
+  checks().forEach(x=>x.onchange=updateCount);
+  $("#selectAllGroupScores").onclick=()=>{
+    const list=checks(),all=list.length&&list.every(x=>x.checked);
+    list.forEach(x=>x.checked=!all);updateCount();
+  };
+  $("#archiveSelectedScores").onclick=async()=>{
+    const btn=$("#archiveSelectedScores");
+    const keys=checks().filter(x=>x.checked).map(x=>x.dataset.key);
+    if(!keys.length)return toast("حداقل یک نمره را انتخاب کنید.",true);
+    const old=btn.textContent;btn.disabled=true;btn.textContent="در حال بایگانی…";
+    try{
+      const {data,error}=await state.sb.rpc("archive_group_scores_v2",{p_group:group.id,p_keys:keys});
       if(error)throw error;
       clearPageCache("groups:");
-      toast(`${data||selected.length} نمره به بایگانی منتقل شد.`);
+      toast(`${data||keys.length} نمره به بایگانی منتقل شد.`);
+      $("#modal").close();
       renderGroups();
-    },"بایگانی انتخاب‌شده‌ها");
-  setTimeout(()=>{const b=$("#selectAllGroupScores");if(b)b.onclick=()=>document.querySelectorAll(".archive-score-check").forEach(x=>x.checked=true)},0);
+    }catch(e){
+      toast(errText(e),true);
+      btn.disabled=false;btn.textContent=old;
+    }
+  };
 }
 
 async function showGroupScoreArchive(group){
@@ -1276,8 +1343,8 @@ async function renderExcelImport(){
       <button class="btn btn-primary full" id="startExcelImport" disabled>شروع ورود اطلاعات</button>
     </div>
     <div class="card"><h3>برگه‌های موردنیاز</h3><div class="excel-sheet-list">
-      <span>کلاس‌ها</span><span>دروس</span><span>دبیران</span><span>دانش‌آموزان</span><span>تخصیص دبیران</span>
-    </div><p class="muted">نام کاربری و رمز اولیه دبیر و دانش‌آموز همان کد ملی است. اگر پایه و کلاس دانش‌آموز درج شود، عضویت کلاس نیز خودکار ثبت می‌شود.</p></div>
+      <span>کلاس‌ها</span><span>دروس</span><span>کاربران</span><span>تخصیص دبیران</span>
+    </div><p class="muted">در برگه «کاربران» نقش کاربر، نام و نام خانوادگی و کد ملی الزامی است. برای دانش‌آموز می‌توان پایه، کلاس و سال تحصیلی را نیز درج کرد تا عضویت کلاس خودکار ثبت شود. نام کاربری و رمز اولیه همان کد ملی است.</p></div>
   </div>`;
   let parsed=null;
   $("#downloadExcelSample").onclick=downloadExcelTemplate;
@@ -1319,18 +1386,15 @@ async function downloadExcelTemplate(){
     {"پایه":"هفتم","درس":"ریاضی"},
     {"پایه":"هفتم","درس":"علوم"}
   ]);
-  add("دبیران",[
-    {"نام و نام خانوادگی":"علی رضایی","کد ملی":"0012345678"}
-  ]);
-  add("دانش‌آموزان",[
-    {"نام و نام خانوادگی":"محمد احمدی","کد ملی":"0012345679","پایه":"هفتم","کلاس":"۷/۱","سال تحصیلی":"۱۴۰۵-۱۴۰۶"}
+  add("کاربران",[
+    {"نقش کاربر":"دبیر","نام و نام خانوادگی":"علی رضایی","کد ملی":"0012345678","پایه":"","کلاس":"","سال تحصیلی":""},
+    {"نقش کاربر":"دانش‌آموز","نام و نام خانوادگی":"محمد احمدی","کد ملی":"0012345679","پایه":"هفتم","کلاس":"۷/۱","سال تحصیلی":"۱۴۰۵-۱۴۰۶"}
   ]);
   add("تخصیص دبیران",[
     {"کد ملی دبیر":"0012345678","پایه":"هفتم","کلاس":"۷/۱","سال تحصیلی":"۱۴۰۵-۱۴۰۶","درس":"ریاضی"}
   ]);
-  XLSX.writeFile(wb,"نمونه-ورود-اطلاعات-مدرسه-v6.xlsx",{compression:true});
+  XLSX.writeFile(wb,"نمونه-ورود-اطلاعات-مدرسه-v6.1.0.xlsx",{compression:true});
 }
-
 function normalizeExcelText(v){return String(v??"").trim();}
 function excelValue(row,...keys){
   for(const k of keys){
@@ -1356,17 +1420,36 @@ async function readSchoolExcel(file){
     grade:excelValue(r,"پایه","grade","Grade"),
     title:excelValue(r,"درس","subject","Subject")
   }));
-  const teachers=read(["دبیران","Teachers"]).map(r=>({
-    name:excelValue(r,"نام و نام خانوادگی","name","Full Name"),
-    nid:toEnDigits(excelValue(r,"کد ملی","national_id","National ID"))
-  }));
-  const students=read(["دانش‌آموزان","Students"]).map(r=>({
+
+  const roleFrom=v=>{
+    const x=normalizeExcelText(v).toLowerCase();
+    if(["teacher","دبیر","معلم"].includes(x))return "teacher";
+    if(["student","دانش‌آموز","دانش اموز"].includes(x))return "student";
+    return "";
+  };
+  const unifiedUsers=read(["کاربران","Users"]).map(r=>({
+    role:roleFrom(excelValue(r,"نقش کاربر","نقش","role","Role")),
     name:excelValue(r,"نام و نام خانوادگی","name","Full Name"),
     nid:toEnDigits(excelValue(r,"کد ملی","national_id","National ID")),
     grade:excelValue(r,"پایه","grade","Grade"),
     classTitle:excelValue(r,"کلاس","class","Class"),
     year:excelValue(r,"سال تحصیلی","year","Academic Year")||"۱۴۰۵-۱۴۰۶"
   }));
+  const legacyTeachers=read(["دبیران","Teachers"]).map(r=>({
+    role:"teacher",name:excelValue(r,"نام و نام خانوادگی","name","Full Name"),
+    nid:toEnDigits(excelValue(r,"کد ملی","national_id","National ID")),grade:"",classTitle:"",year:""
+  }));
+  const legacyStudents=read(["دانش‌آموزان","Students"]).map(r=>({
+    role:"student",name:excelValue(r,"نام و نام خانوادگی","name","Full Name"),
+    nid:toEnDigits(excelValue(r,"کد ملی","national_id","National ID")),
+    grade:excelValue(r,"پایه","grade","Grade"),
+    classTitle:excelValue(r,"کلاس","class","Class"),
+    year:excelValue(r,"سال تحصیلی","year","Academic Year")||"۱۴۰۵-۱۴۰۶"
+  }));
+  const users=unifiedUsers.length?unifiedUsers:[...legacyTeachers,...legacyStudents];
+  const teachers=users.filter(u=>u.role==="teacher");
+  const students=users.filter(u=>u.role==="student");
+
   const assignments=read(["تخصیص دبیران","TeacherAssignments","Assignments"]).map(r=>({
     nid:toEnDigits(excelValue(r,"کد ملی دبیر","teacher_national_id","Teacher National ID")),
     grade:excelValue(r,"پایه","grade","Grade"),
@@ -1374,14 +1457,18 @@ async function readSchoolExcel(file){
     year:excelValue(r,"سال تحصیلی","year","Academic Year")||"۱۴۰۵-۱۴۰۶",
     subject:excelValue(r,"درس","subject","Subject")
   }));
-  if(!classes.length&&!subjects.length&&!teachers.length&&!students.length&&!assignments.length)throw new Error("هیچ‌کدام از برگه‌های نمونه در فایل پیدا نشد.");
-  [...teachers,...students].forEach(u=>{
+
+  if(!classes.length&&!subjects.length&&!users.length&&!assignments.length)throw new Error("هیچ‌کدام از برگه‌های نمونه در فایل پیدا نشد.");
+  users.forEach(u=>{
+    if(!u.role)throw new Error(`نقش کاربر برای ${u.name||u.nid||"یک ردیف"} باید «دبیر» یا «دانش‌آموز» باشد.`);
     if(!u.name||!/^\d{10}$/.test(u.nid))throw new Error(`نام یا کد ملی نامعتبر در فایل: ${u.name||u.nid||"ردیف نامشخص"}`);
+    if(u.role==="student"&&((u.grade&&!u.classTitle)||(!u.grade&&u.classTitle)))throw new Error(`پایه و کلاس دانش‌آموز ${u.name} باید با هم تکمیل شوند.`);
   });
   classes.forEach(x=>{if(!x.grade||!x.title)throw new Error("در برگه کلاس‌ها، پایه و کلاس الزامی است.")});
   subjects.forEach(x=>{if(!x.grade||!x.title)throw new Error("در برگه دروس، پایه و درس الزامی است.")});
   assignments.forEach(x=>{if(!/^\d{10}$/.test(x.nid)||!x.grade||!x.classTitle||!x.subject)throw new Error("یک ردیف تخصیص دبیر ناقص یا نامعتبر است.")});
-  return {"کلاس‌ها":classes,"دروس":subjects,"دبیران":teachers,"دانش‌آموزان":students,"تخصیص‌ها":assignments};
+
+  return {"کلاس‌ها":classes,"دروس":subjects,"دبیران":teachers,"دانش‌آموزان":students,"کاربران":users,"تخصیص‌ها":assignments};
 }
 
 async function importSchoolExcel(data,onProgress=()=>{}){
