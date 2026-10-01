@@ -802,9 +802,10 @@ async function renderTeacherHomework(){
       <div class="actions"><button class="btn btn-primary show-submissions" data-id="${t.id}">مشاهده ارسال‌ها</button><button class="btn btn-ghost del-homework" data-id="${t.id}">حذف تکلیف</button></div>
     </article>`;
   }).join("");
-  $("#content").innerHTML=`<div class="panel-head page-actions"><div><h3>تکالیف تعریف‌شده</h3><p class="muted">تکلیف برای کل کلاس یا یک گروه خاص قابل ثبت است.</p></div><button class="btn btn-primary" id="newHomework">+ تکلیف جدید</button></div>
+  $("#content").innerHTML=`<div class="panel-head page-actions"><div><h3>تکالیف تعریف‌شده</h3><p class="muted">تکلیف برای کل کلاس یا یک گروه خاص قابل ثبت است.</p></div><div class="actions"><button class="btn btn-ghost" id="homeworkAverages">معدل تکالیف</button><button class="btn btn-primary" id="newHomework">+ تکلیف جدید</button></div></div>
     <div class="homework-grid">${cards||'<div class="card empty">هنوز تکلیفی ثبت نشده است.</div>'}</div>`;
   $("#newHomework").onclick=openHomeworkModal;
+  $("#homeworkAverages").onclick=showHomeworkAverages;
   document.querySelectorAll(".show-submissions").forEach(b=>b.onclick=()=>showHomeworkSubmissions(b.dataset.id));
   document.querySelectorAll(".del-homework").forEach(b=>b.onclick=async()=>{
     if(!confirm("این تکلیف و ارسال‌های وابسته حذف شود؟"))return;
@@ -870,7 +871,7 @@ async function renderStudentHomework(){
       <div class="homework-meta"><span>${esc(className(t.class_id))}</span><span>${esc(subjectName(t.subject_id))}</span><span>${homeworkStatusBadge(sub?.status)}</span></div>
       ${sub?.feedback?`<div class="feedback-box"><b>بازخورد دبیر:</b> ${esc(sub.feedback)}</div>`:""}
       ${sub?.status==="graded"?`<div class="assignment-score">نمره: <strong>${sub.score}/۲۰</strong></div>`:""}
-      <div class="actions">${canSend?`<button class="btn btn-primary submit-homework" data-id="${t.id}">${sub?"ارسال مجدد":"ارسال فایل"}</button>`:""}
+      <div class="actions">${canSend?`<button class="btn btn-primary submit-homework" data-id="${t.id}">${sub?.status==="needs_revision"?"ارسال نسخه اصلاح‌شده":sub?"ارسال مجدد":"ارسال فایل"}</button>`:""}
       ${sub?`<button class="btn btn-ghost open-file" data-path="${esc(sub.file_path)}">مشاهده فایل ارسالی</button>`:""}</div>
       ${late&&!sub?'<small class="danger">مهلت تحویل به پایان رسیده است.</small>':""}
     </article>`;
@@ -1017,10 +1018,11 @@ function openStudentSubmission(task,existing){
     const path=`${state.profile.id}/${task.id}/${crypto.randomUUID()}${safeExt}`;
 
     try{
-      const {error:upError}=await state.sb.storage
-        .from("assignment-files")
-        .upload(path,file,{upsert:false,cacheControl:"3600"});
-      if(upError)throw upError;
+      await uploadAssignmentFile(path,file,p=>{
+        const pct=Math.max(5,Math.min(100,Math.round(p*100)));
+        progress.style.width=`${pct}%`;
+        stateEl.textContent=`در حال آپلود… ${toFaDigits(pct)}٪`;
+      });
 
       uploaded={path,name:file.name};
       setUploadState("success","آپلود کامل شد. اکنون روی «ارسال تکلیف» بزنید.");
