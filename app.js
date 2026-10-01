@@ -35,7 +35,9 @@ async function invokeFunction(name, body){
     try{
       if(error.context && typeof error.context.json==="function") details=await error.context.json();
     }catch(_){}
-    throw new Error(details?.error||details?.message||error.message||"خطا در اجرای Edge Function");
+    const raw = details?.error ?? details?.message ?? error.message ?? "خطا در اجرای Edge Function";
+    const message = typeof raw === "string" ? raw : (()=>{ try { return JSON.stringify(raw); } catch(_) { return String(raw); } })();
+    throw new Error(message);
   }
   if(!data?.ok) throw new Error(data?.error||"عملیات سمت سرور ناموفق بود.");
   return data;
