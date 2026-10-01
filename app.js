@@ -523,24 +523,57 @@ function chooseLock(classId,subjectId,period,locked,isManager){
 }
 
 async function renderAnnouncements(){
-  setPage("اطلاعیه‌ها",state.profile.role==="manager"?"ارسال گروهی یا انفرادی":"اطلاعیه‌های دریافتی");
-  const {data,error}=await state.sb.from("announcements").select("*").order("created_at",{ascending:false});if(error)throw error;
-  const add=state.profile.role==="manager"?'<button class="btn btn-primary" id="addAnn">+ اطلاعیه جدید</button>':"";
+  const canCreate=["manager","teacher"].includes(state.profile.role);
+  setPage("اطلاعیه‌ها",state.profile.role==="manager"?"ارسال گروهی یا انفرادی":state.profile.role==="teacher"?"ارسال برای دانش‌آموزان، کلاس‌ها و گروه‌های خود":"اطلاعیه‌های دریافتی");
+  const {data,error}=await state.sb.from("announcements").select("*").order("created_at",{ascending:false});
+  if(error)throw error;
+  const add=canCreate?'<button class="btn btn-primary" id="addAnn">+ اطلاعیه جدید</button>':"";
   $("#content").innerHTML=`<div class="card"><div class="panel-head"><h3>اطلاعیه‌ها</h3>${add}</div><br>
   ${(data||[]).length?(data||[]).map(a=>`<article class="announcement"><h4>${esc(a.title)}</h4><p>${esc(a.body)}</p><small class="muted">${new Intl.DateTimeFormat("fa-IR",{dateStyle:"medium",timeStyle:"short"}).format(new Date(a.created_at))}</small></article>`).join(""):'<div class="empty">اطلاعیه‌ای وجود ندارد.</div>'}</div>`;
   if($("#addAnn"))$("#addAnn").onclick=announcementModal;
 }
-function announcementModal(){
+async function announcementModal(){
+  const isTeacher=state.profile.role==="teacher";
+  let teacherGroups=[],teacherClassIds=[],teacherStudents=[];
+  if(isTeacher){
+    teacherClassIds=[...new Set(state.assignments.filter(a=>a.teacher_id===state.profile.id).map(a=>a.class_id))];
+    teacherStudents=state.profiles.filter(p=>p.role==="student"&&state.classStudents.some(cs=>cs.student_id===p.id&&teacherClassIds.includes(cs.class_id)));
+    const {data,error}=await state.sb.from("student_groups").select("id,name,class_id,subject_id").eq("teacher_id",state.profile.id).order("name");
+    if(error)return toast(errText(error),true);
+    teacherGroups=data||[];
+  }
+  const classes=isTeacher?state.classes.filter(x=>teacherClassIds.includes(x.id)):state.classes;
+  const users=isTeacher?teacherStudents:state.profiles.filter(p=>p.role!=="manager");
+  const typeOptions=isTeacher
+    ? '<option value="class">یک کلاس</option><option value="group">یک گروه</option><option value="user">یک دانش‌آموز</option>'
+    : '<option value="all">همه</option><option value="role">گروه نقش</option><option value="class">یک کلاس</option><option value="user">یک شخص</option>';
   modal("اطلاعیه جدید",`<div class="form-grid">
-  <label class="wide"><span>عنوان</span><input id="anTitle"></label><label class="wide"><span>متن اطلاعیه</span><textarea id="anBody"></textarea></label>
-  <label><span>نوع گیرنده</span><select id="anType"><option value="all">همه</option><option value="role">گروه نقش</option><option value="class">یک کلاس</option><option value="user">یک شخص</option></select></label>
-  <label><span>نقش (در صورت انتخاب گروه)</span><select id="anRole"><option value="teacher">معلمان</option><option value="student">دانش‌آموزان</option></select></label>
-  <label><span>کلاس</span><select id="anClass"><option value="">-</option>${state.classes.map(c=>`<option value="${c.id}">${esc(className(c.id))}</option>`).join("")}</select></label>
-  <label><span>شخص</span><select id="anUser"><option value="">-</option>${state.profiles.filter(p=>p.role!=="manager").map(p=>`<option value="${p.id}">${esc(p.full_name)} - ${faRole[p.role]}</option>`).join("")}</select></label></div>`,async()=>{
-    const type=$("#anType").value,p={title:$("#anTitle").value.trim(),body:$("#anBody").value.trim(),target_type:type,created_by:state.profile.id,target_role:null,target_class_id:null,target_user_id:null};
-    if(type==="role")p.target_role=$("#anRole").value;if(type==="class")p.target_class_id=$("#anClass").value;if(type==="user")p.target_user_id=$("#anUser").value;
+    <label class="wide"><span>عنوان</span><input id="anTitle"></label>
+    <label class="wide"><span>متن اطلاعیه</span><textarea id="anBody"></textarea></label>
+    <label><span>نوع گیرنده</span><select id="anType">${typeOptions}</select></label>
+    ${!isTeacher?'<label><span>نقش</span><select id="anRole"><option value="teacher">معلمان</option><option value="student">دانش‌آموزان</option></select></label>':""}
+    <label><span>کلاس</span><select id="anClass"><option value="">-</option>${classes.map(x=>`<option value="${x.id}">${esc(className(x.id))}</option>`).join("")}</select></label>
+    ${isTeacher?`<label><span>گروه</span><select id="anGroup"><option value="">-</option>${teacherGroups.map(g=>`<option value="${g.id}">${esc(g.name)} — ${esc(className(g.class_id))}</option>`).join("")}</select></label>`:""}
+    <label class="wide"><span>${isTeacher?"دانش‌آموز":"شخص"}</span><select id="anUser"><option value="">-</option>${users.map(p=>`<option value="${p.id}">${esc(p.full_name)}${isTeacher?"":" - "+faRole[p.role]}</option>`).join("")}</select></label>
+  </div>`,async()=>{
+    const type=$("#anType").value;
+    const p={
+      title:$("#anTitle").value.trim(),
+      body:$("#anBody").value.trim(),
+      target_type:type,
+      created_by:state.profile.id,
+      target_role:null,target_class_id:null,target_user_id:null,target_group_id:null
+    };
+    if(type==="role")p.target_role=$("#anRole")?.value||null;
+    if(type==="class")p.target_class_id=$("#anClass").value||null;
+    if(type==="user")p.target_user_id=$("#anUser").value||null;
+    if(type==="group")p.target_group_id=$("#anGroup").value||null;
     if(!p.title||!p.body)throw new Error("عنوان و متن اطلاعیه الزامی است.");
-    const {error}=await state.sb.from("announcements").insert(p);if(error)throw error;toast("اطلاعیه ارسال شد.");renderAnnouncements();
+    if(type!=="all"&&!p.target_role&&!p.target_class_id&&!p.target_user_id&&!p.target_group_id)throw new Error("گیرنده اطلاعیه را انتخاب کنید.");
+    const {error}=await state.sb.from("announcements").insert(p);
+    if(error)throw error;
+    toast("اطلاعیه ارسال شد.");
+    renderAnnouncements();
   },"ارسال");
 }
 
