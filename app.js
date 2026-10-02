@@ -971,44 +971,58 @@ async function announcementModal(){
 }
 
 async function renderReport(){
-  setPage("کارنامه من","کارنامه سال تحصیلی بر اساس الگوی رسمی");
-  const {data:settings,error:settingsError}=await state.sb.from("school_settings").select("objections_open,report_cards_open").eq("id",true).maybeSingle();
+  setPage("کارنامه من","کارنامه تحصیلی رسمی، روند نمرات و وضعیت حضور");
+  const {data:settings,error:settingsError}=await state.sb
+    .from("school_settings")
+    .select("objections_open,report_cards_open,passing_score")
+    .eq("id",true).maybeSingle();
   if(settingsError)throw settingsError;
   if(state.profile.role==="student"&&settings?.report_cards_open===false){
     $("#content").innerHTML='<div class="card report-closed"><div class="setting-icon">▤</div><h3>نمایش کارنامه غیرفعال است</h3><p class="muted">مدیر مدرسه در حال حاضر امکان مشاهده کارنامه را بسته است.</p></div>';
     return;
   }
+
   const myClassLink=state.classStudents.find(x=>x.student_id===state.profile.id);
   const myClass=myClassLink?byId(state.classes,myClassLink.class_id):null;
   const grade=myClass?byId(state.grades,myClass.grade_id):null;
 
-  const [{data:scores,error:scoreError},{data:discipline,error:disciplineError}]=await Promise.all([
+  const [{data:scores,error:scoreError},{data:discipline,error:disciplineError},{data:reportStats,error:reportStatsError}]=await Promise.all([
     state.sb.from("scores").select("*").eq("student_id",state.profile.id).order("period"),
-    state.sb.from("discipline_scores").select("*").eq("student_id",state.profile.id)
+    state.sb.from("discipline_scores").select("*").eq("student_id",state.profile.id),
+    state.sb.rpc("student_report_stats",{p_student:state.profile.id})
   ]);
   if(scoreError)throw scoreError;
   if(disciplineError)throw disciplineError;
+  if(reportStatsError)throw reportStatsError;
 
-  const subjects=grade?state.subjects.filter(s=>s.grade_id===grade.id):[...new Set((scores||[]).map(s=>s.subject_id))].map(id=>byId(state.subjects,id)).filter(Boolean);
+  const passingScore=Number(settings?.passing_score??reportStats?.passing_score??10);
+  const attendanceStats=reportStats?.attendance||{};
+  const subjects=grade
+    ? state.subjects.filter(s=>s.grade_id===grade.id)
+    : [...new Set((scores||[]).map(s=>s.subject_id))].map(id=>byId(state.subjects,id)).filter(Boolean);
   const scoreFor=(sid,needle)=>(scores||[]).find(s=>s.subject_id===sid&&String(s.period||"").includes(needle));
   const values=[];
+  const trend=[];
 
   const rows=subjects.map((sub,i)=>{
-    const p1=scoreFor(sub.id,"اول")||{}, p2=scoreFor(sub.id,"دوم")||{};
+    const p1=scoreFor(sub.id,"اول")||{},p2=scoreFor(sub.id,"دوم")||{};
     const lesson1=p1.lesson_score==null?null:Number(p1.lesson_score);
     const lesson2=p2.lesson_score==null?null:Number(p2.lesson_score);
     const annual=lesson1!=null&&lesson2!=null?(lesson1+lesson2)/2:null;
+    const delta=lesson1!=null&&lesson2!=null?lesson2-lesson1:null;
     if(annual!=null)values.push(annual);
-    const status=annual==null?"-":annual>=10?"قبول":"نیاز به تلاش";
+    trend.push({title:sub.title,first:lesson1,second:lesson2});
+
+    const status=annual==null?"نمره ناقص":annual>=passingScore?"قبول":"نیاز به تلاش";
     const objectionScore=p2.id||p1.id;
-    const objectionSubject=sub.id;
     return `<tr>
       <td>${i+1}</td><td class="subject-cell">${esc(sub.title)}</td>
       <td>${p1.continuous_score??"-"}</td><td>${p1.final_score??"-"}</td><td class="term-score">${lesson1==null?"-":lesson1.toFixed(2)}</td>
       <td>${p2.continuous_score??"-"}</td><td>${p2.final_score??"-"}</td><td class="term-score">${lesson2==null?"-":lesson2.toFixed(2)}</td>
+      <td class="score-delta ${delta!=null&&delta>0?"positive":delta!=null&&delta<0?"negative":""}">${delta==null?"-":(delta>0?"+":"")+delta.toFixed(2)}</td>
       <td class="annual-score">${annual==null?"-":annual.toFixed(2)}</td>
-      <td><span class="badge ${annual!=null&&annual<10?"warn":""}">${status}</span></td>
-      <td class="no-print">${objectionScore?`<button class="btn btn-ghost obj-btn" data-id="${objectionScore}" data-subject="${objectionSubject}" ${settings?.objections_open?"":"disabled"}>اعتراض</button>`:"-"}</td>
+      <td><span class="badge ${annual==null||annual<passingScore?"warn":""}">${status}</span></td>
+      <td class="no-print">${objectionScore?`<button class="btn btn-ghost obj-btn" data-id="${objectionScore}" data-subject="${sub.id}" ${settings?.objections_open?"":"disabled"}>اعتراض</button>`:"-"}</td>
     </tr>`;
   }).join("");
 
@@ -1029,35 +1043,72 @@ async function renderReport(){
         <div><h2>کارنامه تحصیلی دانش‌آموز</h2><p>سامانه آموزش و پرورش استان اصفهان</p></div>
         <div class="report-year">سال تحصیلی<br><strong>${esc(myClass?.academic_year||"-")}</strong></div>
       </div>
-      <div class="report-meta">
+      <div class="report-meta report-meta-v7">
         <span><b>نام دانش‌آموز:</b> ${esc(state.profile.full_name)}</span>
         <span><b>کد ملی:</b> ${esc(state.profile.national_id)}</span>
         <span><b>پایه:</b> ${esc(grade?.title||"-")}</span>
         <span><b>کلاس:</b> ${esc(myClass?.title||"-")}</span>
+        <span><b>نوبت:</b> اول و دوم</span>
+        <span><b>حد نصاب قبولی:</b> ${toFaDigits(passingScore)}</span>
       </div>
       <div class="table-wrap report-table-wrap">
-        <table class="report-table">
+        <table class="report-table report-table-v7">
           <thead>
             <tr>
               <th rowspan="2">ردیف</th><th rowspan="2">نام درس</th>
               <th colspan="3">نوبت اول</th><th colspan="3">نوبت دوم</th>
-              <th rowspan="2">نمره سالانه</th><th rowspan="2">وضعیت</th><th rowspan="2" class="no-print">اعتراض</th>
+              <th rowspan="2">تغییر</th><th rowspan="2">نمره سالانه</th><th rowspan="2">وضعیت</th><th rowspan="2" class="no-print">اعتراض</th>
             </tr>
             <tr><th>تکوینی</th><th>پایانی</th><th>نمره درس</th><th>تکوینی</th><th>پایانی</th><th>نمره درس</th></tr>
           </thead>
-          <tbody>${rows||'<tr><td colspan="11" class="empty">هنوز نمره‌ای ثبت نشده است.</td></tr>'}</tbody>
+          <tbody>${rows||'<tr><td colspan="12" class="empty">هنوز نمره‌ای ثبت نشده است.</td></tr>'}</tbody>
         </table>
       </div>
-      <div class="report-summary">
+      <div class="report-summary report-summary-v7">
         <div><small>معدل</small><strong>${average==null?"-":average.toFixed(2)}</strong></div>
         <div><small>انضباط</small><strong>${esc(disciplineText)}</strong></div>
-        <div><small>نتیجه</small><strong>${average==null?"-":average>=10?"قبول":"نیاز به تلاش"}</strong></div>
+        <div><small>نتیجه</small><strong>${average==null?"-":average>=passingScore?"قبول":"نیاز به تلاش"}</strong></div>
+        <div><small>کل غیبت</small><strong>${toFaDigits(attendanceStats.total_absence||0)}</strong></div>
+        <div><small>غیبت غیرموجه</small><strong>${toFaDigits(attendanceStats.unexcused_absence||0)}</strong></div>
+        <div><small>تأخیر</small><strong>${toFaDigits(attendanceStats.late||0)}</strong></div>
+      </div>
+      <div class="report-chart no-print">
+        <div class="panel-head"><h3>روند نمرات نوبت اول و دوم</h3><div class="report-chart-legend"><span>نوبت اول</span><span>نوبت دوم</span></div></div>
+        <canvas id="reportTrendChart" height="180"></canvas>
       </div>
       <div class="report-signatures"><span>امضای مدیر مدرسه</span><span>امضای ولی دانش‌آموز</span></div>
     </section>`;
 
   $("#printReport").onclick=()=>window.print();
+  drawReportTrend(trend);
   document.querySelectorAll(".obj-btn").forEach(b=>b.onclick=()=>studentObjectionModal(b.dataset.id,b.dataset.subject));
+}
+
+function drawReportTrend(items){
+  const canvas=$("#reportTrendChart");if(!canvas)return;
+  const dpr=window.devicePixelRatio||1;
+  const cssWidth=Math.max(620,canvas.parentElement?.clientWidth-20||900),h=180;
+  canvas.width=Math.floor(cssWidth*dpr);canvas.height=Math.floor(h*dpr);
+  canvas.style.width=cssWidth+"px";canvas.style.height=h+"px";
+  const ctx=canvas.getContext("2d");ctx.scale(dpr,dpr);ctx.clearRect(0,0,cssWidth,h);
+  const left=38,right=12,top=15,bottom=32,plotW=cssWidth-left-right,plotH=h-top-bottom;
+  ctx.font="10px Vazirmatn";ctx.textAlign="center";
+  for(let y=0;y<=20;y+=5){
+    const py=top+plotH-(y/20)*plotH;
+    ctx.strokeStyle="#dbe7e5";ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(left,py);ctx.lineTo(cssWidth-right,py);ctx.stroke();
+    ctx.fillStyle="#748987";ctx.fillText(toFaDigits(y),18,py+3);
+  }
+  const valid=items.filter(x=>x.first!=null||x.second!=null);
+  if(!valid.length){ctx.fillStyle="#748987";ctx.fillText("نمره کافی برای نمایش نمودار وجود ندارد.",cssWidth/2,h/2);return}
+  const step=plotW/Math.max(1,valid.length);
+  const drawSeries=(key,color)=>{
+    const ps=valid.map((x,i)=>({x:left+i*step+step/2,y:top+plotH-(Number(x[key]??0)/20)*plotH,v:x[key]})).filter(p=>p.v!=null);
+    ctx.strokeStyle=color;ctx.lineWidth=2;ctx.beginPath();ps.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.stroke();
+    ctx.fillStyle=color;ps.forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,3,0,Math.PI*2);ctx.fill()});
+  };
+  drawSeries("first","#0a756b");drawSeries("second","#c99b3f");
+  ctx.fillStyle="#607775";ctx.font="9px Vazirmatn";
+  valid.forEach((x,i)=>ctx.fillText(String(x.title).slice(0,11),left+i*step+step/2,h-8));
 }
 
 async function studentObjectionModal(scoreId,subjectId){
@@ -1094,6 +1145,10 @@ async function renderSettings(){
         <div><span class="setting-icon">▤</span><div><h3>مشاهده کارنامه</h3><p class="muted">نمایش یا مخفی‌کردن کارنامه برای همه دانش‌آموزان.</p></div></div>
         <label class="switch"><input id="reportSwitch" type="checkbox" ${data.report_cards_open!==false?"checked":""}><span></span></label>
       </div>
+      <div class="card setting-card">
+        <div><span class="setting-icon">۲۰</span><div><h3>حد نصاب قبولی</h3><p class="muted">مبنای وضعیت «قبول» در کارنامه.</p></div></div>
+        <div class="actions"><input id="passingScoreInput" class="compact-number" inputmode="decimal" value="${data.passing_score??10}"><button class="btn btn-ghost" id="savePassingScore">ذخیره</button></div>
+      </div>
       <div class="card mfa-status-card">
         <div class="mfa-status-main">
           <span class="mfa-shield">✓</span>
@@ -1126,6 +1181,15 @@ async function renderSettings(){
   };
   $("#objectionSwitch").onchange=e=>updateSetting("objections_open",e.target.checked,e.target,"ثبت اعتراض فعال شد.","ثبت اعتراض بسته شد.");
   $("#reportSwitch").onchange=e=>updateSetting("report_cards_open",e.target.checked,e.target,"نمایش کارنامه فعال شد.","نمایش کارنامه برای دانش‌آموزان بسته شد.");
+  if($("#savePassingScore"))$("#savePassingScore").onclick=async()=>{
+    try{
+      const value=num($("#passingScoreInput").value);
+      if(value===null)throw new Error("حد نصاب را وارد کنید.");
+      const {error}=await state.sb.from("school_settings").update({passing_score:value,updated_at:new Date().toISOString(),updated_by:state.profile.id}).eq("id",true);
+      if(error)throw error;
+      toast("حد نصاب قبولی ذخیره شد.");
+    }catch(e){toast(errText(e),true)}
+  };
   if($("#resetManagerMfa"))$("#resetManagerMfa").onclick=async()=>{
     try{await resetManagerMfa()}catch(e){toast(errText(e),true)}
   };
