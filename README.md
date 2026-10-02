@@ -238,3 +238,31 @@ https://mozdbaranarshiya.github.io/system/
 برای دیتابیس فایل زیر را اجرا کنید:
 
 `supabase/migrations/20261001_manager_ente_mfa.sql`
+
+
+## نسخه ۷ — مرحله ۱: امنیت، تغییر رمز و Audit
+
+Migration:
+
+`supabase/migrations/20261002_system_v7_01_security.sql`
+
+این مرحله بدون حذف داده‌های قبلی موارد زیر را اضافه می‌کند:
+
+- ستون‌های `must_change_password`، `password_changed_at` و `password_required_at` به `profiles`
+- اجبار تغییر رمز برای کاربران جدید و کاربرانی که مدیر رمز آن‌ها را بازنشانی می‌کند
+- صفحه «امنیت حساب» برای همه نقش‌ها
+- صفحه «تاریخچه تغییرات» برای مدیر
+- جدول `audit_logs` با RLS فقط-خواندنی برای مدیر
+- Trigger ثبت Audit برای جداول حساس فعلی
+- Restrictive RLS برای جلوگیری از استفاده عادی حسابی که هنوز رمز اولیه را تغییر نداده است
+- Edge Function جدید `change-password`
+- ثبت دستی Audit برای عملیات `admin-user` که با دسترسی سرور انجام می‌شوند
+
+### ترتیب نصب مرحله ۱
+
+1. اجرای Migration بالا در Supabase SQL Editor
+2. Deploy مجدد Edge Function `admin-user`
+3. Deploy Edge Function جدید `change-password`
+4. سپس Merge/انتشار Frontend مرحله ۱
+
+کاربران فعلی به‌صورت پیش‌فرض مجبور به تغییر رمز نمی‌شوند تا دسترسی موجود قطع نشود. کاربران جدید از اولین ورود ملزم به تغییر رمز هستند.
