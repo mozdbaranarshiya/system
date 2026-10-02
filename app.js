@@ -159,10 +159,16 @@ function toast(message, error=false){
   clearTimeout(toast.timer); toast.timer=setTimeout(()=>t.className="toast",3500);
 }
 function errText(e){
-  const m=e?.message||String(e||"خطای نامشخص");
-  const map={ACCESS_DENIED:"دسترسی مجاز نیست.",CONTINUOUS_LOCKED:"نمره تکوینی قفل است.",FINAL_LOCKED:"نمره پایانی قفل است.",
-    MANAGER_ONLY:"این عملیات فقط برای مدیر مجاز است.",INVALID_NATIONAL_ID:"کد ملی باید ۱۰ رقم باشد.",
-    USER_INACTIVE:"حساب مدیر غیرفعال است.",
+  const raw=e?.message||String(e||"خطای نامشخص");
+  const map={
+    ACCESS_DENIED:"شما اجازه انجام این عملیات را ندارید.",
+    CONTINUOUS_LOCKED:"نمره تکوینی قفل است.",
+    FINAL_LOCKED:"نمره پایانی قفل است.",
+    MANAGER_ONLY:"این عملیات فقط برای مدیر مجاز است.",
+    STAFF_ONLY:"این عملیات فقط برای مدیر یا دبیر مجاز است.",
+    STUDENT_ONLY:"این عملیات فقط برای دانش‌آموز مجاز است.",
+    INVALID_NATIONAL_ID:"کد ملی باید ۱۰ رقم باشد.",
+    USER_INACTIVE:"این حساب کاربری غیرفعال است.",
     CANNOT_DELETE_SELF:"مدیر نمی‌تواند حساب خودش را حذف کند.",
     DEADLINE_PASSED:"مهلت تحویل این تکلیف به پایان رسیده است.",
     ALREADY_GRADED:"برای این تکلیف نمره نهایی ثبت شده است.",
@@ -172,8 +178,8 @@ function errText(e){
     INVALID_STATUS:"وضعیت انتخاب‌شده معتبر نیست.",
     UPLOAD_NETWORK_ERROR:"ارتباط هنگام آپلود قطع شد. دوباره تلاش کنید.",
     UPLOAD_TIMEOUT:"آپلود بیش از حد طول کشید. اتصال اینترنت را بررسی کنید.",
-    NO_SELECTION:"حداقل یک نمره را برای بایگانی انتخاب کنید.",
-    NOTHING_ARCHIVED:"هیچ نمره‌ای به بایگانی منتقل نشد.",
+    NO_SELECTION:"حداقل یک مورد را انتخاب کنید.",
+    NOTHING_ARCHIVED:"هیچ موردی به بایگانی منتقل نشد.",
     MFA_REQUIRED:"برای عملیات مدیریتی باید کد دومرحله‌ای تأیید شود.",
     MFA_LEVEL_NOT_UPGRADED:"سطح امنیت نشست مدیر به AAL2 ارتقا پیدا نکرد.",
     MFA_ENROLL_INCOMPLETE:"اطلاعات راه‌اندازی Ente Auth کامل دریافت نشد. دوباره وارد شوید.",
@@ -182,8 +188,45 @@ function errText(e){
     PASSWORD_UPDATE_FAILED:"تغییر رمز انجام نشد. دوباره تلاش کنید.",
     PASSWORD_COMPLETION_FAILED:"تغییر رمز انجام شد اما فعال‌سازی حساب کامل نشد.",
     PASSWORD_NOT_CHANGED:"رمز حساب هنوز تغییر نکرده است.",
-    PROFILE_NOT_FOUND:"پروفایل کاربری پیدا نشد."};
-  return map[m]||m;
+    PROFILE_NOT_FOUND:"پروفایل کاربری پیدا نشد.",
+    TIMETABLE_CLASS_CONFLICT:"برای این کلاس در این ساعت برنامه دیگری ثبت شده است.",
+    TIMETABLE_TEACHER_CONFLICT:"این دبیر در این ساعت در کلاس دیگری برنامه دارد.",
+    TEACHER_NOT_ASSIGNED:"این دبیر برای کلاس و درس انتخاب‌شده تخصیص ندارد.",
+    STUDENT_NOT_IN_CLASS:"دانش‌آموز عضو این کلاس نیست.",
+    INVALID_SCHEDULE_ENTRY:"جلسه انتخاب‌شده با کلاس و درس سازگار نیست.",
+    INVALID_DELAY_MINUTES:"تعداد دقیقه واردشده معتبر نیست.",
+    EXAM_NOT_AVAILABLE:"آزمون در دسترس نیست.",
+    EXAM_NOT_STARTED:"زمان شروع آزمون هنوز نرسیده است.",
+    EXAM_ENDED:"مهلت آزمون پایان یافته است.",
+    EXAM_TIME_ENDED:"زمان پاسخ‌گویی آزمون پایان یافته است.",
+    ATTEMPT_ALREADY_SUBMITTED:"این آزمون قبلاً ارسال شده است.",
+    FORM_NOT_ACTIVE:"این فرم غیرفعال است.",
+    FORM_NOT_OPEN:"زمان شروع این فرم هنوز نرسیده است.",
+    FORM_CLOSED:"مهلت ارسال این فرم پایان یافته است.",
+    FORM_ALREADY_SUBMITTED:"این فرم قبلاً ارسال شده است.",
+    REQUIRED_FIELD_MISSING:"همه فیلدهای الزامی را تکمیل کنید.",
+    POLL_NOT_ACTIVE:"این نظرسنجی غیرفعال است.",
+    POLL_NOT_STARTED:"رأی‌گیری هنوز شروع نشده است.",
+    POLL_CLOSED:"مهلت رأی‌گیری پایان یافته است.",
+    POLL_ALREADY_VOTED:"شما قبلاً در این نظرسنجی رأی داده‌اید.",
+    POLL_RESULTS_HIDDEN:"نمایش نتایج این نظرسنجی غیرفعال است.",
+    CLASS_FULL:"ظرفیت این کلاس تکمیل شده است.",
+    ALREADY_REGISTERED:"قبلاً برای این کلاس ثبت‌نام کرده‌اید.",
+    REGISTRATION_NOT_STARTED:"زمان ثبت‌نام هنوز شروع نشده است.",
+    REGISTRATION_CLOSED:"مهلت ثبت‌نام پایان یافته است.",
+    APPOINTMENT_SLOT_CONFLICT:"این زمان با زمان آزاد دیگری تداخل دارد.",
+    APPOINTMENT_CONFLICT:"برای این ساعت ملاقات دیگری دارید.",
+    SLOT_FULL:"ظرفیت این زمان ملاقات تکمیل شده است.",
+    SLOT_NOT_AVAILABLE:"این زمان دیگر قابل رزرو نیست.",
+    SLOT_PASSED:"زمان این ملاقات گذشته است.",
+    CANNOT_BOOK_SELF:"امکان رزرو ملاقات با حساب خودتان وجود ندارد."
+  };
+  if(map[raw])return map[raw];
+  for(const [code,msg] of Object.entries(map))if(raw.includes(code))return msg;
+  if(/permission denied|row-level security|violates row-level|PGRST|JWT|schema cache|duplicate key|violates .*constraint|invalid input syntax|Failed to fetch|NetworkError|TypeError: fetch|HTTP [45]\d\d/i.test(raw)){
+    return "عملیات انجام نشد. لطفاً اطلاعات را بررسی کنید و دوباره تلاش کنید.";
+  }
+  return raw.length>220?"عملیات انجام نشد. لطفاً دوباره تلاش کنید.":raw;
 }
 async function invokeFunction(name, body){
   const {data,error}=await state.sb.functions.invoke(name,{body});
