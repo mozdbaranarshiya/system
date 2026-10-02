@@ -292,7 +292,7 @@ async function renderTimetable(){
   var schedule=weekdays.map(function(day,wi){
     var cells=ps.map(function(p){
       var items=es.filter(function(x){return x.weekday===wi&&x.period_id===p.id});
-      return '<td>'+(items.length?items.map(function(x){return '<div class="v7-slot"><b>'+esc(A.subjectName(x.subject_id))+'</b><small>'+esc(A.className(x.class_id))+'</small><small>'+esc(A.userName(x.teacher_id))+'</small></div>'}).join(""):"-")+'</td>'
+      return '<td>'+(items.length?items.map(function(x){return '<div class="v7-slot"><b>'+esc(A.subjectName(x.subject_id))+'</b><small>'+esc(A.className(x.class_id))+'</small><small>'+esc(A.userName(x.teacher_id))+'</small>'+(isManager()?'<div class="v7-table-actions"><button class="btn btn-ghost btn-sm tt-edit" data-id="'+x.id+'">ویرایش</button><button class="btn btn-ghost danger btn-sm tt-del" data-id="'+x.id+'">حذف</button></div>':"")+'</div>'}).join(""):"-")+'</td>'
     }).join("");
     return '<tr><th>'+day+'</th>'+cells+'</tr>'
   });
@@ -318,6 +318,23 @@ async function renderTimetable(){
         var r=await A.state.sb.from("timetable_entries").insert(p);if(r.error)throw r.error;A.toast("برنامه ثبت شد.");renderTimetable()
       })
   }
+  qa(".tt-del").forEach(function(b){b.onclick=async function(){
+    if(!confirm("این برنامه حذف شود؟"))return;
+    var r=await A.state.sb.from("timetable_entries").delete().eq("id",b.dataset.id);
+    if(r.error)return A.toast(err(r.error),true);A.toast("برنامه حذف شد.");renderTimetable()
+  }});
+  qa(".tt-edit").forEach(function(b){b.onclick=function(){
+    var old=es.find(function(x){return x.id===b.dataset.id});if(!old)return;
+    A.modal("ویرایش برنامه",'<div class="form-grid"><label><span>کلاس</span><select id="tteClass">'+opt(A.state.classes,function(x){return x.id},function(x){return A.className(x.id)},old.class_id)+'</select></label>'+
+      '<label><span>درس</span><select id="tteSubject">'+opt(A.state.subjects,function(x){return x.id},function(x){return x.title},old.subject_id)+'</select></label>'+
+      '<label><span>دبیر</span><select id="tteTeacher">'+opt(A.state.profiles.filter(function(x){return x.role==="teacher"}),function(x){return x.id},function(x){return x.full_name},old.teacher_id)+'</select></label>'+
+      '<label><span>روز</span><select id="tteDay">'+weekdays.map(function(x,i){return '<option value="'+i+'" '+(i===old.weekday?"selected":"")+'>'+x+'</option>'}).join("")+'</select></label>'+
+      '<label><span>زنگ</span><select id="ttePeriod">'+opt(ps,function(x){return x.id},function(x){return x.title},old.period_id)+'</select></label>'+
+      '<label><span>سال تحصیلی</span><input id="tteYear" value="'+esc(old.academic_year)+'"></label></div>',async function(){
+        var p={class_id:q("#tteClass").value,subject_id:q("#tteSubject").value,teacher_id:q("#tteTeacher").value,weekday:Number(q("#tteDay").value),period_id:q("#ttePeriod").value,academic_year:q("#tteYear").value.trim(),updated_at:new Date().toISOString()};
+        var r=await A.state.sb.from("timetable_entries").update(p).eq("id",old.id);if(r.error)throw r.error;A.toast("برنامه ویرایش شد.");renderTimetable()
+      })
+  }});
 }
 
 async function renderExams(){
@@ -512,10 +529,11 @@ async function renderStudentProfile(){
       A.state.sb.from("exam_attempts").select("*").eq("student_id",id).order("started_at",{ascending:false}).limit(100),
       A.state.sb.from("assignment_submissions").select("*").eq("student_id",id).order("submitted_at",{ascending:false}).limit(100),
       A.state.sb.from("objections").select("*").eq("student_id",id).order("created_at",{ascending:false}).limit(100),
-      A.state.sb.from("extracurricular_enrollments").select("*").eq("student_id",id).limit(100)
+      A.state.sb.from("extracurricular_enrollments").select("*").eq("student_id",id).limit(100),
+      A.state.sb.from("form_submissions").select("*").eq("user_id",id).order("submitted_at",{ascending:false}).limit(100)
     ]);
     var bad=results.find(function(x){return x.error});if(bad)throw bad.error;
-    var scores=results[0].data||[],att=results[1].data||[],beh=results[2].data||[],ex=results[3].data||[],subs=results[4].data||[],obj=results[5].data||[],extra=results[6].data||[];
+    var scores=results[0].data||[],att=results[1].data||[],beh=results[2].data||[],ex=results[3].data||[],subs=results[4].data||[],obj=results[5].data||[],extra=results[6].data||[],forms=results[7].data||[];
     var vals=scores.map(function(x){return Number(x.lesson_score)}).filter(function(x){return Number.isFinite(x)});var avg=vals.length?vals.reduce(function(a,b){return a+b},0)/vals.length:null;
     q("#studentProfileBody").innerHTML='<div class="v7-profile-head card"><div class="avatar">'+esc((p.full_name||"د").charAt(0))+'</div><div><h2>'+esc(p.full_name)+'</h2><p class="muted">'+esc(p.national_id)+' — '+esc(cls?A.className(cls.class_id):"بدون کلاس")+'</p></div></div>'+
       '<div class="stats"><div class="stat"><span>معدل</span><b>'+(avg==null?"-":fa(avg.toFixed(2)))+'</b></div><div class="stat"><span>غیبت</span><b>'+fa(att.filter(function(x){return ["absent","excused","unexcused"].indexOf(x.status)>=0}).length)+'</b></div><div class="stat"><span>آزمون</span><b>'+fa(ex.length)+'</b></div><div class="stat"><span>رویداد رفتاری</span><b>'+fa(beh.length)+'</b></div></div>'+
@@ -525,7 +543,8 @@ async function renderStudentProfile(){
       card("آزمون‌ها",A.table(["وضعیت","نمره کل"],ex.map(function(x){return '<tr><td>'+esc(x.status)+'</td><td>'+fa(x.total_score)+'</td></tr>'})))+
       card("تکالیف",'<p class="muted">تعداد ارسال‌ها: <b>'+fa(subs.length)+'</b></p>')+
       card("اعتراض‌ها",'<p class="muted">تعداد اعتراض‌ها: <b>'+fa(obj.length)+'</b></p>')+
-      card("فوق‌برنامه",'<p class="muted">تعداد ثبت‌نام‌ها: <b>'+fa(extra.length)+'</b></p>')+'</div>'
+      card("فوق‌برنامه",'<p class="muted">تعداد ثبت‌نام‌ها: <b>'+fa(extra.length)+'</b></p>')+
+      card("فرم‌ها",'<p class="muted">تعداد فرم‌های ارسال‌شده: <b>'+fa(forms.length)+'</b></p>')+'</div>'
   }
   if(q("#profileStudent"))q("#profileStudent").onchange=function(){load(this.value)};
   await load(selected)
@@ -535,8 +554,9 @@ async function renderBehavior(){
   A.setPage("رفتار، تشویق و انضباط","ثبت و مشاهده رویدادهای رفتاری");
   var query=A.state.sb.from("behavior_events").select("*").order("event_date",{ascending:false}).limit(300);if(isStudent())query=query.eq("student_id",A.state.profile.id);
   var r=await query;if(r.error)throw r.error;var rows=r.data||[];
-  var add=!isStudent()?'<button class="btn btn-primary" id="addBehavior">+ رویداد رفتاری</button>':"";
+  var add=!isStudent()?'<div class="actions">'+(isManager()?'<button class="btn btn-ghost" id="manageBehaviorCats">دسته‌ها</button>':"")+'<button class="btn btn-primary" id="addBehavior">+ رویداد رفتاری</button></div>':"";
   q("#content").innerHTML=card("رویدادها",A.table(["دانش‌آموز","تاریخ","عنوان","نوع","امتیاز","توضیح"],rows.map(function(x){return '<tr><td>'+esc(A.userName(x.student_id))+'</td><td>'+d(x.event_date)+'</td><td>'+esc(x.title)+'</td><td>'+badge(typeLabels[x.event_type],x.event_type==="negative"?"danger":"")+'</td><td>'+fa(x.points)+'</td><td>'+esc(x.description||"-")+'</td></tr>'})),add);
+  if(q("#manageBehaviorCats"))q("#manageBehaviorCats").onclick=manageBehaviorCategories;
   if(q("#addBehavior"))q("#addBehavior").onclick=async function(){
     var cats=await A.state.sb.from("behavior_categories").select("*").eq("active",true).order("title");if(cats.error)return A.toast(err(cats.error),true);
     var allowed=A.state.profiles.filter(function(p){
@@ -553,6 +573,13 @@ async function renderBehavior(){
       var x=await A.state.sb.from("behavior_events").insert(p);if(x.error)throw x.error;A.toast("رویداد ثبت شد.");renderBehavior()
     })
   }
+}
+
+async function manageBehaviorCategories(){
+  var r=await A.state.sb.from("behavior_categories").select("*").order("title");if(r.error)return A.toast(err(r.error),true);
+  A.modal("دسته‌های رفتاری",'<div class="panel-head"><p class="muted">دسته‌ها را فعال/غیرفعال کنید یا مورد جدید بسازید.</p><button type="button" class="btn btn-primary" id="newBehaviorCat">+ دسته جدید</button></div><div class="v7-category-list">'+(r.data||[]).map(function(x){return '<span class="badge '+(x.active?"":"warn")+'">'+esc(x.title)+' ('+fa(x.default_points)+') <button type="button" class="icon-btn cat-toggle" data-id="'+x.id+'" data-active="'+x.active+'" title="تغییر وضعیت">'+(x.active?"✓":"○")+'</button></span>'}).join("")+'</div>',async function(){q("#modal").close()},"بستن");
+  qa(".cat-toggle").forEach(function(b){b.onclick=async function(){var x=await A.state.sb.from("behavior_categories").update({active:b.dataset.active!=="true"}).eq("id",b.dataset.id);if(x.error)return A.toast(err(x.error),true);q("#modal").close();manageBehaviorCategories()}});
+  q("#newBehaviorCat").onclick=function(){q("#modal").close();A.modal("دسته رفتاری جدید",'<div class="form-grid"><label><span>عنوان</span><input id="bcTitle"></label><label><span>نوع پیش‌فرض</span><select id="bcType"><option value="positive">مثبت</option><option value="negative">منفی</option><option value="neutral">خنثی</option></select></label><label><span>امتیاز پیش‌فرض</span><input id="bcPoints" inputmode="numeric" value="0"></label></div>',async function(){var p={title:q("#bcTitle").value.trim(),default_type:q("#bcType").value,default_points:Number(en(q("#bcPoints").value)||0),active:true};if(!p.title)throw new Error("عنوان دسته الزامی است.");var x=await A.state.sb.from("behavior_categories").insert(p);if(x.error)throw x.error;A.toast("دسته ساخته شد.");manageBehaviorCategories()})}
 }
 
 async function renderForms(){
@@ -595,8 +622,19 @@ async function fillForm(id){
   },"ارسال فرم")
 }
 async function formResults(id){
-  var sub=await A.state.sb.from("form_submissions").select("*").eq("form_id",id).order("submitted_at",{ascending:false});if(sub.error)return A.toast(err(sub.error),true);
-  A.modal("نتایج فرم",A.table(["کاربر","زمان"],(sub.data||[]).map(function(x){return '<tr><td>'+esc(A.userName(x.user_id))+'</td><td>'+dt(x.submitted_at)+'</td></tr>'})),async function(){q("#modal").close()},"بستن")
+  var pair=await Promise.all([
+    A.state.sb.from("form_fields").select("*").eq("form_id",id).order("sort_order"),
+    A.state.sb.from("form_submissions").select("*").eq("form_id",id).order("submitted_at",{ascending:false})
+  ]);
+  if(pair[0].error||pair[1].error)return A.toast(err(pair[0].error||pair[1].error),true);
+  var fields=pair[0].data||[],subs=pair[1].data||[],ids=subs.map(function(x){return x.id}),answers=[];
+  if(ids.length){var ar=await A.state.sb.from("form_answers").select("*").in("submission_id",ids);if(ar.error)return A.toast(err(ar.error),true);answers=ar.data||[]}
+  var amap=new Map(answers.map(function(a){return [a.submission_id+"|"+a.field_id,a.answer]}));
+  var headers=["کاربر","زمان"].concat(fields.map(function(x){return x.label}));
+  var rawRows=subs.map(function(x){return [A.userName(x.user_id),dt(x.submitted_at)].concat(fields.map(function(f){var v=amap.get(x.id+"|"+f.id);return Array.isArray(v)?v.join("، "):(v==null?"-":String(v))}))});
+  var html='<div class="panel-head"><p class="muted">تمام پاسخ‌های ثبت‌شده</p><button type="button" class="btn btn-ghost" id="formExcel">خروجی Excel</button></div>'+A.table(headers,rawRows.map(function(row){return '<tr>'+row.map(function(c){return '<td>'+esc(c)+'</td>'}).join("")+'</tr>'}));
+  A.modal("نتایج فرم",html,async function(){q("#modal").close()},"بستن");
+  q("#formExcel").onclick=async function(){await A.ensureSheetJS();var data=rawRows.map(function(row){var o={};headers.forEach(function(h,i){o[h]=row[i]});return o});var wb=XLSX.utils.book_new(),ws=XLSX.utils.json_to_sheet(data);XLSX.utils.book_append_sheet(wb,ws,"پاسخ‌ها");XLSX.writeFile(wb,"پاسخ-فرم.xlsx")}
 }
 
 async function renderPolls(){
