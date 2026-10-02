@@ -3,7 +3,7 @@
 
 var A=null;
 var routes=new Set([
-  "attendance","timetable","exams","calendar","notifications","reports","studentProfile",
+  "dashboard","attendance","timetable","exams","calendar","notifications","reports","studentProfile",
   "behavior","forms","polls","extracurricular","appointments","audit","security"
 ]);
 var attendanceLabels={present:"حاضر",absent:"غایب",excused:"غیبت موجه",unexcused:"غیبت غیرموجه",late:"تأخیر",early_leave:"خروج زودهنگام"};
@@ -165,6 +165,7 @@ async function forcePasswordChange(){
 async function navigate(route){
   if(!A)return;
   if(A.state.profile.must_change_password)return forcePasswordChange();
+  if(route==="dashboard")return renderV7Dashboard();
   if(route==="attendance")return renderAttendance();
   if(route==="timetable")return renderTimetable();
   if(route==="exams")return renderExams();
@@ -179,6 +180,35 @@ async function navigate(route){
   if(route==="appointments")return renderAppointments();
   if(route==="audit")return renderAudit();
   if(route==="security")return renderSecurity();
+}
+
+async function renderV7Dashboard(){
+  A.setPage("داشبورد","نمای یکپارچه وضعیت امروز و روزهای آینده");
+  var rr=await A.state.sb.rpc("get_v7_dashboard");
+  if(rr.error){q("#content").innerHTML='<div class="alert alert-warning">'+esc(err(rr.error))+'</div>';return}
+  var x=rr.data||{},stats=[];
+  if(isManager())stats=[
+    ["دانش‌آموزان",x.students||0],["دبیران",x.teachers||0],["کلاس‌ها",x.classes||0],
+    ["غیبت امروز",x.absent_today||0],["آزمون‌های ۷ روز آینده",x.upcoming_exams||0],
+    ["فرم‌های فعال",x.active_forms||0],["ملاقات‌های در انتظار",x.pending_appointments||0]
+  ];
+  else if(isTeacher())stats=[
+    ["تخصیص تدریس",x.teaching||0],["کلاس‌های امروز",x.today_periods||0],
+    ["آزمون‌های آینده",x.upcoming_exams||0],["ملاقات‌های در انتظار",x.pending_appointments||0]
+  ];
+  else stats=[
+    ["مجموع غیبت",x.absences||0],["اعلان خوانده‌نشده",x.unread_notifications||0],
+    ["آزمون‌های ۷ روز آینده",x.upcoming_exams||0],["فرم‌های فعال",x.active_forms||0]
+  ];
+  var from=new Date(),to=new Date(Date.now()+7*86400000);
+  var feed=await A.state.sb.rpc("get_calendar_feed",{p_from:from.toISOString(),p_to:to.toISOString()});
+  var events=feed.error?[]:(feed.data||[]);
+  q("#content").innerHTML='<div class="stats">'+stats.map(function(k){return '<div class="stat"><span>'+esc(k[0])+'</span><b>'+fa(k[1])+'</b></div>'}).join("")+'</div>'+
+    '<div class="v7-grid">'+
+    card("برنامه نزدیک",events.length?'<div class="v7-timeline">'+events.slice(0,8).map(function(e){return '<article><time>'+dt(e.start_at)+'</time><div><b>'+esc(e.title)+'</b><small>'+esc(eventLabels[e.event_type]||e.event_type)+'</small></div></article>'}).join("")+'</div>':empty("برنامه‌ای در ۷ روز آینده نیست."))+
+    card("دسترسی سریع",'<div class="v7-quick-links">'+menuFor(role()).slice(0,8).map(function(m){return '<button class="btn btn-ghost dash-link" data-route="'+m[0]+'">'+esc(m[1])+'</button>'}).join("")+'</div>')+
+    '</div>';
+  qa(".dash-link").forEach(function(b){b.onclick=function(){A.navigate(b.dataset.route)}})
 }
 
 async function renderAttendance(){
@@ -241,7 +271,7 @@ async function renderAttendance(){
     try{
       var cid=q("#attClass").value,sub=q("#attSubject").value||null,date=q("#attDate").value,sch=q("#attSchedule").value||null;
       var payload=qa("#attGrid tbody tr").map(function(tr){return {student_id:tr.dataset.student,class_id:cid,subject_id:sub,schedule_entry_id:sch,attendance_date:date,status:tr.querySelector(".att-status").value,delay_minutes:Number(en(tr.querySelector(".att-min").value)||0),note:tr.querySelector(".att-note").value.trim()||null,recorded_by:A.state.profile.id,updated_at:new Date().toISOString()}});
-      var r=await A.state.sb.from("attendance_records").upsert(payload,{onConflict:"student_id,class_id,attendance_date,schedule_entry_id,subject_id"});if(r.error)throw r.error;
+      var r=await A.state.sb.from("attendance_records").upsert(payload,{onConflict:"student_id,class_id,attendance_date,session_key"});if(r.error)throw r.error;
       A.toast("حضور و غیاب ثبت شد.");await loadAttendanceGrid()
     }catch(x){A.toast(err(x),true)}finally{btn.disabled=false}
   };
@@ -567,8 +597,8 @@ async function renderPolls(){
   var r=await A.state.sb.from("polls").select("*").order("created_at",{ascending:false});if(r.error)throw r.error;
   q("#content").innerHTML='<div class="panel-head page-actions"><div><h3>نظرسنجی‌ها</h3></div>'+(isManager()?'<button class="btn btn-primary" id="newPoll">+ نظرسنجی</button>':"")+'</div><div class="v7-grid">'+((r.data||[]).length?(r.data||[]).map(function(p){return card(p.title,'<p class="muted">'+esc(p.description||"")+'</p><div class="pill-row">'+badge(p.anonymous?"ناشناس":"عادی")+badge(p.show_results?"نمایش نتیجه":"نتیجه مخفی")+'</div>',isManager()?'<button class="btn btn-ghost poll-result" data-id="'+p.id+'">نتایج</button>':'<div class="actions"><button class="btn btn-primary poll-vote" data-id="'+p.id+'">رأی دادن</button><button class="btn btn-ghost poll-result" data-id="'+p.id+'">نتایج</button></div>')}).join(""):empty())+'</div>';
   if(q("#newPoll"))q("#newPoll").onclick=function(){
-    A.modal("نظرسنجی جدید",'<div class="form-grid"><label class="wide"><span>عنوان</span><input id="poTitle"></label><label class="wide"><span>توضیح</span><textarea id="poDesc"></textarea></label>'+targetFields("po",true)+'<label class="wide"><span>گزینه‌ها - هر گزینه در یک خط</span><textarea id="poOptions"></textarea></label><label class="check-card"><input id="poAnon" type="checkbox"><span><b>ناشناس</b></span></label><label class="check-card"><input id="poShow" type="checkbox"><span><b>نمایش نتیجه</b></span></label></div>',async function(){
-      var p={title:q("#poTitle").value.trim(),description:q("#poDesc").value.trim()||null,anonymous:q("#poAnon").checked,show_results:q("#poShow").checked,active:true,created_by:A.state.profile.id};Object.assign(p,targetPayload("po"));
+    A.modal("نظرسنجی جدید",'<div class="form-grid"><label class="wide"><span>عنوان</span><input id="poTitle"></label><label class="wide"><span>توضیح</span><textarea id="poDesc"></textarea></label>'+targetFields("po",true)+'<label><span>شروع</span><input id="poStart" type="datetime-local"></label><label><span>پایان</span><input id="poEnd" type="datetime-local"></label><label class="wide"><span>گزینه‌ها - هر گزینه در یک خط</span><textarea id="poOptions"></textarea></label><label class="check-card"><input id="poAnon" type="checkbox"><span><b>ناشناس</b></span></label><label class="check-card"><input id="poShow" type="checkbox"><span><b>نمایش نتیجه</b></span></label></div>',async function(){
+      var p={title:q("#poTitle").value.trim(),description:q("#poDesc").value.trim()||null,starts_at:iso(q("#poStart").value),ends_at:iso(q("#poEnd").value),anonymous:q("#poAnon").checked,show_results:q("#poShow").checked,active:true,created_by:A.state.profile.id};Object.assign(p,targetPayload("po"));
       var ins=await A.state.sb.from("polls").insert(p).select("*").single();if(ins.error)throw ins.error;var lines=q("#poOptions").value.split(/\n/).map(function(x){return x.trim()}).filter(Boolean);if(lines.length<2)throw new Error("حداقل دو گزینه لازم است.");
       var oo=await A.state.sb.from("poll_options").insert(lines.map(function(x,i){return {poll_id:ins.data.id,option_text:x,sort_order:i}}));if(oo.error)throw oo.error;A.toast("نظرسنجی ساخته شد.");renderPolls()
     })
@@ -588,7 +618,7 @@ async function pollResults(id){
 async function renderExtracurricular(){
   A.setPage("کلاس‌های فوق‌برنامه","تقویتی، ورزشی، هنری و فرهنگی");
   var r=await A.state.sb.from("extracurricular_classes").select("*").order("created_at",{ascending:false});if(r.error)throw r.error;
-  q("#content").innerHTML='<div class="panel-head page-actions"><div><h3>فوق‌برنامه‌ها</h3></div>'+(isManager()?'<button class="btn btn-primary" id="newExtra">+ کلاس جدید</button>':"")+'</div><div class="v7-grid">'+((r.data||[]).length?(r.data||[]).map(function(x){return card(x.title,'<p>'+esc(x.description||"")+'</p><p class="muted">'+esc(x.location||"بدون مکان")+' — ظرفیت '+fa(x.capacity)+'</p>',isStudent()?'<button class="btn btn-primary extra-enroll" data-id="'+x.id+'">درخواست ثبت‌نام</button>':'<button class="btn btn-ghost extra-members" data-id="'+x.id+'">اعضا</button>')}).join(""):empty())+'</div>';
+  q("#content").innerHTML='<div class="panel-head page-actions"><div><h3>فوق‌برنامه‌ها</h3></div>'+(isManager()?'<button class="btn btn-primary" id="newExtra">+ کلاس جدید</button>':"")+'</div><div class="v7-grid">'+((r.data||[]).length?(r.data||[]).map(function(x){return card(x.title,'<p>'+esc(x.description||"")+'</p><p class="muted">'+esc(x.location||"بدون مکان")+' — ظرفیت '+fa(x.capacity)+'</p>',isStudent()?'<button class="btn btn-primary extra-enroll" data-id="'+x.id+'">درخواست ثبت‌نام</button>':'<div class="actions"><button class="btn btn-ghost extra-members" data-id="'+x.id+'">اعضا</button><button class="btn btn-ghost extra-sessions" data-id="'+x.id+'">جلسات</button></div>')}).join(""):empty())+'</div>';
   if(q("#newExtra"))q("#newExtra").onclick=function(){
     A.modal("کلاس فوق‌برنامه",'<div class="form-grid"><label><span>عنوان</span><input id="ecTitle"></label><label><span>دسته</span><select id="ecCategory"><option value="remedial">تقویتی</option><option value="sports">ورزشی</option><option value="art">هنری</option><option value="cultural">فرهنگی</option><option value="language">زبان</option><option value="olympiad">المپیاد</option><option value="lab">آزمایشگاه</option><option value="other">سایر</option></select></label><label><span>دبیر</span><select id="ecTeacher"><option value="">-</option>'+opt(A.state.profiles.filter(function(p){return p.role==="teacher"}),function(x){return x.id},function(x){return x.full_name})+'</select></label><label><span>ظرفیت</span><input id="ecCap" inputmode="numeric" value="20"></label><label><span>مکان</span><input id="ecLocation"></label><label><span>شروع ثبت‌نام</span><input id="ecRegStart" type="datetime-local"></label><label><span>پایان ثبت‌نام</span><input id="ecRegEnd" type="datetime-local"></label><label class="wide"><span>توضیح</span><textarea id="ecDesc"></textarea></label></div>',async function(){
       var p={title:q("#ecTitle").value.trim(),description:q("#ecDesc").value.trim()||null,category:q("#ecCategory").value,teacher_id:q("#ecTeacher").value||null,capacity:Number(en(q("#ecCap").value)),location:q("#ecLocation").value.trim()||null,registration_start:iso(q("#ecRegStart").value),registration_end:iso(q("#ecRegEnd").value),active:true,created_by:A.state.profile.id};
@@ -596,12 +626,21 @@ async function renderExtracurricular(){
     })
   };
   qa(".extra-enroll").forEach(function(b){b.onclick=async function(){var x=await A.state.sb.rpc("enroll_extracurricular",{p_class:b.dataset.id});if(x.error)return A.toast(err(x.error),true);A.toast("درخواست ثبت‌نام ارسال شد.")}});
-  qa(".extra-members").forEach(function(b){b.onclick=function(){extraMembers(b.dataset.id)}})
+  qa(".extra-members").forEach(function(b){b.onclick=function(){extraMembers(b.dataset.id)}});
+  qa(".extra-sessions").forEach(function(b){b.onclick=function(){extraSessions(b.dataset.id)}})
 }
 async function extraMembers(id){
   var r=await A.state.sb.from("extracurricular_enrollments").select("*").eq("class_id",id).order("registered_at");if(r.error)return A.toast(err(r.error),true);
   A.modal("اعضای فوق‌برنامه",A.table(["دانش‌آموز","وضعیت","عملیات"],(r.data||[]).map(function(x){return '<tr><td>'+esc(A.userName(x.student_id))+'</td><td>'+esc(x.status)+'</td><td><div class="actions"><button class="btn btn-ghost extra-status" data-id="'+x.id+'" data-s="approved">تأیید</button><button class="btn btn-ghost danger extra-status" data-id="'+x.id+'" data-s="rejected">رد</button></div></td></tr>'})),async function(){q("#modal").close()},"بستن");
   qa(".extra-status").forEach(function(b){b.onclick=async function(){var x=await A.state.sb.from("extracurricular_enrollments").update({status:b.dataset.s,updated_at:new Date().toISOString()}).eq("id",b.dataset.id);if(x.error)return A.toast(err(x.error),true);q("#modal").close();extraMembers(id)}})
+}
+
+async function extraSessions(id){
+  var r=await A.state.sb.from("extracurricular_sessions").select("*").eq("class_id",id).order("starts_at");
+  if(r.error)return A.toast(err(r.error),true);
+  A.modal("جلسات کلاس فوق‌برنامه",'<div class="panel-head"><p class="muted">جلسات در تقویم آموزشی نیز نمایش داده می‌شوند.</p><button type="button" class="btn btn-primary" id="newExtraSession">+ جلسه</button></div>'+
+    A.table(["شروع","پایان","توضیح"],(r.data||[]).map(function(x){return '<tr><td>'+dt(x.starts_at)+'</td><td>'+dt(x.ends_at)+'</td><td>'+esc(x.note||"-")+'</td></tr>'})),async function(){q("#modal").close()},"بستن");
+  q("#newExtraSession").onclick=function(){q("#modal").close();A.modal("جلسه فوق‌برنامه",'<div class="form-grid"><label><span>شروع</span><input id="xsStart" type="datetime-local" value="'+localInput(new Date(Date.now()+86400000))+'"></label><label><span>پایان</span><input id="xsEnd" type="datetime-local" value="'+localInput(new Date(Date.now()+90000000))+'"></label><label class="wide"><span>توضیح</span><input id="xsNote"></label></div>',async function(){var x=await A.state.sb.from("extracurricular_sessions").insert({class_id:id,starts_at:iso(q("#xsStart").value),ends_at:iso(q("#xsEnd").value),note:q("#xsNote").value.trim()||null});if(x.error)throw x.error;A.toast("جلسه ثبت شد.");extraSessions(id)})}
 }
 
 async function renderAppointments(){
