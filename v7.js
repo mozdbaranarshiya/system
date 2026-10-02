@@ -478,33 +478,122 @@ async function renderNotifications(){
 
 async function renderReports(){
   if(!isManager()){A.setPage("گزارش‌ها","");q("#content").innerHTML=empty("این بخش فقط برای مدیر است.");return}
-  A.setPage("گزارش‌ها","فیلتر، چاپ و خروجی Excel");
-  q("#content").innerHTML=card("گزارش‌ساز",'<div class="form-grid v7-toolbar"><label><span>نوع گزارش</span><select id="repType"><option value="students">دانش‌آموزان</option><option value="scores">نمرات</option><option value="attendance">حضور و غیاب</option><option value="behavior">رفتار و تشویق</option><option value="exams">آزمون‌ها</option><option value="extracurricular">فوق‌برنامه</option><option value="forms">فرم‌ها</option></select></label>'+
+  A.setPage("گزارش‌ها","فیلتر بر اساس سال، پایه، کلاس، درس، دبیر، دانش‌آموز و تاریخ");
+  var teachers=A.state.profiles.filter(function(p){return p.role==="teacher"}),students=A.state.profiles.filter(function(p){return p.role==="student"});
+  var years=Array.from(new Set(A.state.classes.map(function(c){return c.academic_year}).filter(Boolean)));
+  q("#content").innerHTML=card("گزارش‌ساز",
+    '<div class="form-grid v7-toolbar v7-report-filters">'+
+    '<label><span>نوع گزارش</span><select id="repType">'+
+      '<option value="students">دانش‌آموزان</option><option value="teachers">دبیران</option><option value="classes">کلاس‌ها</option>'+
+      '<option value="scores">نمرات</option><option value="averages">معدل کلاس‌ها</option><option value="attendance">حضور و غیاب</option>'+
+      '<option value="homework">تکالیف</option><option value="exams">آزمون‌ها</option><option value="behavior">رفتار و تشویق</option>'+
+      '<option value="objections">اعتراض‌ها</option><option value="extracurricular">فوق‌برنامه</option><option value="forms">فرم‌ها</option><option value="polls">نظرسنجی‌ها</option>'+
+    '</select></label>'+
+    '<label><span>سال تحصیلی</span><select id="repYear"><option value="">همه سال‌ها</option>'+years.map(function(y){return '<option value="'+esc(y)+'">'+esc(y)+'</option>'}).join("")+'</select></label>'+
+    '<label><span>پایه</span><select id="repGrade"><option value="">همه پایه‌ها</option>'+opt(A.state.grades,function(x){return x.id},function(x){return x.title})+'</select></label>'+
     '<label><span>کلاس</span><select id="repClass"><option value="">همه کلاس‌ها</option>'+opt(A.state.classes,function(x){return x.id},function(x){return A.className(x.id)})+'</select></label>'+
-    '<div class="actions wide"><button id="repLoad" class="btn btn-primary">نمایش گزارش</button><button id="repExcel" class="btn btn-ghost" disabled>Excel</button><button id="repPrint" class="btn btn-ghost" disabled>چاپ/PDF</button></div></div><div id="repResult"></div>');
-  var currentRows=[],currentHeaders=[];
+    '<label><span>درس</span><select id="repSubject"><option value="">همه درس‌ها</option>'+opt(A.state.subjects,function(x){return x.id},function(x){return x.title})+'</select></label>'+
+    '<label><span>دبیر</span><select id="repTeacher"><option value="">همه دبیران</option>'+opt(teachers,function(x){return x.id},function(x){return x.full_name})+'</select></label>'+
+    '<label><span>دانش‌آموز</span><select id="repStudent"><option value="">همه دانش‌آموزان</option>'+opt(students,function(x){return x.id},function(x){return x.full_name})+'</select></label>'+
+    '<label><span>از تاریخ</span><input id="repFrom" type="date"></label><label><span>تا تاریخ</span><input id="repTo" type="date"></label>'+
+    '<div class="actions wide"><button id="repLoad" class="btn btn-primary">نمایش گزارش</button><button id="repExcel" class="btn btn-ghost" disabled>Excel</button><button id="repPrint" class="btn btn-ghost" disabled>چاپ/PDF</button></div></div>'+
+    '<div id="repResult"></div>');
+  var currentRows=[],currentHeaders=[],currentTitle="گزارش";
+
+  function filters(){
+    return {year:q("#repYear").value,grade:q("#repGrade").value,cid:q("#repClass").value,subject:q("#repSubject").value,teacher:q("#repTeacher").value,student:q("#repStudent").value,from:q("#repFrom").value,to:q("#repTo").value}
+  }
+  function classAllowed(cid,f){
+    var c=A.state.classes.find(function(x){return x.id===cid});if(!c)return !f.cid&&!f.grade&&!f.year;
+    return (!f.cid||c.id===f.cid)&&(!f.grade||c.grade_id===f.grade)&&(!f.year||c.academic_year===f.year)
+  }
+  function dateAllowed(value,f){
+    if(!value)return true;var t=new Date(value).getTime();if(!Number.isFinite(t))return true;
+    if(f.from&&t<new Date(f.from+"T00:00:00").getTime())return false;
+    if(f.to&&t>new Date(f.to+"T23:59:59").getTime())return false;
+    return true
+  }
+  function teacherAllowed(classId,subjectId,f){
+    if(!f.teacher)return true;
+    return A.state.assignments.some(function(a){return a.teacher_id===f.teacher&&a.class_id===classId&&(!subjectId||a.subject_id===subjectId)})
+  }
+  function rowHtml(row){return '<tr>'+row.map(function(c){return '<td>'+esc(c==null?"-":c)+'</td>'}).join("")+'</tr>'}
   async function load(){
-    var type=q("#repType").value,cid=q("#repClass").value;
+    var type=q("#repType").value,f=filters();currentRows=[];currentHeaders=[];currentTitle=q("#repType").selectedOptions[0].textContent;
     if(type==="students"){
-      var students=A.state.profiles.filter(function(p){return p.role==="student"&&( !cid||A.state.classStudents.some(function(cs){return cs.class_id===cid&&cs.student_id===p.id}) )});
-      currentHeaders=["نام","کد ملی","کلاس","وضعیت"];currentRows=students.map(function(p){var cs=A.state.classStudents.find(function(x){return x.student_id===p.id&&( !cid||x.class_id===cid)});return [p.full_name,p.national_id,cs?A.className(cs.class_id):"-",p.active?"فعال":"غیرفعال"]})
-    }else{
-      var tableName={scores:"scores",attendance:"attendance_records",behavior:"behavior_events",exams:"exam_attempts",extracurricular:"extracurricular_enrollments",forms:"form_submissions"}[type];
-      var query=A.state.sb.from(tableName).select("*").limit(2000);if(cid&&["scores","attendance","behavior"].indexOf(type)>=0)query=query.eq("class_id",cid);
-      var rr=await query;if(rr.error)throw rr.error;
-      if(type==="scores"){currentHeaders=["دانش‌آموز","کلاس","درس","نوبت","تکوینی","پایانی","نمره درس"];currentRows=(rr.data||[]).map(function(x){return [A.userName(x.student_id),A.className(x.class_id),A.subjectName(x.subject_id),x.period,x.continuous_score,x.final_score,x.lesson_score]})}
-      if(type==="attendance"){currentHeaders=["دانش‌آموز","کلاس","تاریخ","وضعیت","دقیقه"];currentRows=(rr.data||[]).map(function(x){return [A.userName(x.student_id),A.className(x.class_id),d(x.attendance_date),attendanceLabels[x.status],x.delay_minutes]})}
-      if(type==="behavior"){currentHeaders=["دانش‌آموز","کلاس","تاریخ","عنوان","نوع","امتیاز"];currentRows=(rr.data||[]).map(function(x){return [A.userName(x.student_id),A.className(x.class_id),d(x.event_date),x.title,typeLabels[x.event_type],x.points]})}
-      if(type==="exams"){currentHeaders=["دانش‌آموز","وضعیت","خودکار","تشریحی","کل"];currentRows=(rr.data||[]).map(function(x){return [A.userName(x.student_id),x.status,x.auto_score,x.manual_score,x.total_score]})}
-      if(type==="extracurricular"){currentHeaders=["دانش‌آموز","کلاس","وضعیت","تاریخ"];currentRows=(rr.data||[]).map(function(x){return [A.userName(x.student_id),x.class_id,x.status,dt(x.registered_at)]})}
-      if(type==="forms"){currentHeaders=["کاربر","فرم","تاریخ"];currentRows=(rr.data||[]).map(function(x){return [A.userName(x.user_id),x.form_id,dt(x.submitted_at)]})}
+      var list=students.filter(function(p){
+        if(f.student&&p.id!==f.student)return false;
+        var links=A.state.classStudents.filter(function(cs){return cs.student_id===p.id});
+        return (!f.cid&&!f.grade&&!f.year)||links.some(function(cs){return classAllowed(cs.class_id,f)})
+      });
+      currentHeaders=["نام","کد ملی","کلاس","سال","وضعیت"];
+      currentRows=list.map(function(p){var cs=A.state.classStudents.find(function(x){return x.student_id===p.id&&classAllowed(x.class_id,f)})||A.state.classStudents.find(function(x){return x.student_id===p.id});var c=cs&&A.state.classes.find(function(x){return x.id===cs.class_id});return [p.full_name,p.national_id,cs?A.className(cs.class_id):"-",c&&c.academic_year||"-",p.active?"فعال":"غیرفعال"]})
+    }else if(type==="teachers"){
+      var listT=teachers.filter(function(p){if(f.teacher&&p.id!==f.teacher)return false;if(!f.cid&&!f.grade&&!f.year&&!f.subject)return true;return A.state.assignments.some(function(a){return a.teacher_id===p.id&&classAllowed(a.class_id,f)&&(!f.subject||a.subject_id===f.subject)})});
+      currentHeaders=["نام","کد ملی","تعداد تخصیص","وضعیت"];
+      currentRows=listT.map(function(p){return [p.full_name,p.national_id,A.state.assignments.filter(function(a){return a.teacher_id===p.id}).length,p.active?"فعال":"غیرفعال"]})
+    }else if(type==="classes"){
+      var listC=A.state.classes.filter(function(c){return classAllowed(c.id,f)});
+      currentHeaders=["کلاس","سال تحصیلی","تعداد دانش‌آموز","تعداد تخصیص دبیر"];
+      currentRows=listC.map(function(c){return [A.className(c.id),c.academic_year,A.state.classStudents.filter(function(x){return x.class_id===c.id}).length,A.state.assignments.filter(function(x){return x.class_id===c.id}).length]})
+    }else if(type==="scores"||type==="averages"){
+      var sr=await A.state.sb.from("scores").select("*").limit(5000);if(sr.error)throw sr.error;
+      var scoreRows=(sr.data||[]).filter(function(x){return classAllowed(x.class_id,f)&&(!f.subject||x.subject_id===f.subject)&&(!f.student||x.student_id===f.student)&&teacherAllowed(x.class_id,x.subject_id,f)&&dateAllowed(x.updated_at,f)});
+      if(type==="scores"){
+        currentHeaders=["دانش‌آموز","کلاس","درس","نوبت","تکوینی","پایانی","نمره درس","آخرین تغییر"];
+        currentRows=scoreRows.map(function(x){return [A.userName(x.student_id),A.className(x.class_id),A.subjectName(x.subject_id),x.period,x.continuous_score,x.final_score,x.lesson_score,dt(x.updated_at)]})
+      }else{
+        var groups=new Map();scoreRows.forEach(function(x){if(x.lesson_score==null)return;var k=x.class_id+"|"+x.period;if(!groups.has(k))groups.set(k,[]);groups.get(k).push(Number(x.lesson_score))});
+        currentHeaders=["کلاس","نوبت","تعداد نمره","معدل"];
+        currentRows=Array.from(groups.entries()).map(function(kv){var parts=kv[0].split("|"),vals=kv[1];return [A.className(parts[0]),parts[1],vals.length,(vals.reduce(function(a,b){return a+b},0)/vals.length).toFixed(2)]})
+      }
+    }else if(type==="attendance"){
+      var ar=await A.state.sb.from("attendance_records").select("*").limit(5000);if(ar.error)throw ar.error;
+      var rowsA=(ar.data||[]).filter(function(x){return classAllowed(x.class_id,f)&&(!f.subject||x.subject_id===f.subject)&&(!f.student||x.student_id===f.student)&&teacherAllowed(x.class_id,x.subject_id,f)&&dateAllowed(x.attendance_date,f)});
+      currentHeaders=["دانش‌آموز","کلاس","درس","تاریخ","وضعیت","دقیقه","توضیح"];
+      currentRows=rowsA.map(function(x){return [A.userName(x.student_id),A.className(x.class_id),x.subject_id?A.subjectName(x.subject_id):"-",d(x.attendance_date),attendanceLabels[x.status],x.delay_minutes,x.note||"-"]})
+    }else if(type==="behavior"){
+      var br=await A.state.sb.from("behavior_events").select("*").limit(5000);if(br.error)throw br.error;
+      var rowsB=(br.data||[]).filter(function(x){return classAllowed(x.class_id,f)&&(!f.student||x.student_id===f.student)&&dateAllowed(x.event_date,f)});
+      currentHeaders=["دانش‌آموز","کلاس","تاریخ","عنوان","نوع","امتیاز"];
+      currentRows=rowsB.map(function(x){return [A.userName(x.student_id),A.className(x.class_id),d(x.event_date),x.title,typeLabels[x.event_type],x.points]})
+    }else if(type==="homework"){
+      var pair=await Promise.all([A.state.sb.from("homework_grades").select("*").limit(5000),A.state.sb.from("assignments").select("id,title,class_id,subject_id,teacher_id,due_at").limit(5000)]);
+      if(pair[0].error||pair[1].error)throw pair[0].error||pair[1].error;var amap=new Map((pair[1].data||[]).map(function(a){return [a.id,a]}));
+      var rowsH=(pair[0].data||[]).filter(function(x){var a=amap.get(x.assignment_id);return a&&classAllowed(a.class_id,f)&&(!f.subject||a.subject_id===f.subject)&&(!f.teacher||a.teacher_id===f.teacher)&&(!f.student||x.student_id===f.student)&&dateAllowed(x.updated_at,f)});
+      currentHeaders=["دانش‌آموز","تکلیف","کلاس","درس","نمره","منبع","آخرین تغییر"];
+      currentRows=rowsH.map(function(x){var a=amap.get(x.assignment_id);return [A.userName(x.student_id),a.title,A.className(a.class_id),A.subjectName(a.subject_id),x.score,x.source,dt(x.updated_at)]})
+    }else if(type==="exams"){
+      var ep=await Promise.all([A.state.sb.from("exam_attempts").select("*").limit(5000),A.state.sb.from("exams").select("*").limit(5000)]);if(ep[0].error||ep[1].error)throw ep[0].error||ep[1].error;var emap=new Map((ep[1].data||[]).map(function(e){return [e.id,e]}));
+      var rowsE=(ep[0].data||[]).filter(function(x){var e=emap.get(x.exam_id);return e&&classAllowed(e.class_id,f)&&(!f.subject||e.subject_id===f.subject)&&(!f.teacher||e.teacher_id===f.teacher)&&(!f.student||x.student_id===f.student)&&dateAllowed(x.started_at,f)});
+      currentHeaders=["دانش‌آموز","آزمون","کلاس","درس","وضعیت","نمره کل","شروع","ثبت نهایی"];
+      currentRows=rowsE.map(function(x){var e=emap.get(x.exam_id);return [A.userName(x.student_id),e.title,A.className(e.class_id),A.subjectName(e.subject_id),x.status,x.total_score,dt(x.started_at),dt(x.submitted_at)]})
+    }else if(type==="objections"){
+      var op=await Promise.all([A.state.sb.from("objections").select("*").limit(5000),A.state.sb.from("scores").select("id,class_id,subject_id,student_id").limit(5000)]);if(op[0].error||op[1].error)throw op[0].error||op[1].error;var smap=new Map((op[1].data||[]).map(function(x){return [x.id,x]}));
+      var rowsO=(op[0].data||[]).filter(function(x){var sc=smap.get(x.score_id);return sc&&classAllowed(sc.class_id,f)&&(!f.subject||sc.subject_id===f.subject)&&(!f.student||x.student_id===f.student)&&teacherAllowed(sc.class_id,sc.subject_id,f)&&dateAllowed(x.created_at,f)});
+      currentHeaders=["دانش‌آموز","کلاس","درس","بخش","وضعیت","علت","پاسخ"];
+      currentRows=rowsO.map(function(x){var sc=smap.get(x.score_id);return [A.userName(x.student_id),A.className(sc.class_id),A.subjectName(sc.subject_id),x.component,x.status,x.reason,x.teacher_response||"-"]})
+    }else if(type==="extracurricular"){
+      var xp=await Promise.all([A.state.sb.from("extracurricular_enrollments").select("*").limit(5000),A.state.sb.from("extracurricular_classes").select("*").limit(1000)]);if(xp[0].error||xp[1].error)throw xp[0].error||xp[1].error;var xmap=new Map((xp[1].data||[]).map(function(x){return [x.id,x]}));
+      var rowsX=(xp[0].data||[]).filter(function(x){var c=xmap.get(x.class_id);return c&&(!f.teacher||c.teacher_id===f.teacher)&&(!f.student||x.student_id===f.student)&&dateAllowed(x.registered_at,f)});
+      currentHeaders=["دانش‌آموز","کلاس فوق‌برنامه","دبیر","وضعیت","تاریخ"];
+      currentRows=rowsX.map(function(x){var c=xmap.get(x.class_id);return [A.userName(x.student_id),c.title,c.teacher_id?A.userName(c.teacher_id):"-",x.status,dt(x.registered_at)]})
+    }else if(type==="forms"){
+      var fp=await Promise.all([A.state.sb.from("form_submissions").select("*").limit(5000),A.state.sb.from("forms").select("id,title,target_class_id").limit(1000)]);if(fp[0].error||fp[1].error)throw fp[0].error||fp[1].error;var fmap=new Map((fp[1].data||[]).map(function(x){return [x.id,x]}));
+      var rowsF=(fp[0].data||[]).filter(function(x){var fm=fmap.get(x.form_id);return fm&&(!f.student||x.user_id===f.student)&&(!f.cid||fm.target_class_id===f.cid)&&dateAllowed(x.submitted_at,f)});
+      currentHeaders=["کاربر","فرم","زمان ارسال"];
+      currentRows=rowsF.map(function(x){return [A.userName(x.user_id),(fmap.get(x.form_id)||{}).title||"-",dt(x.submitted_at)]})
+    }else if(type==="polls"){
+      var pp=await Promise.all([A.state.sb.from("polls").select("*").limit(1000),A.state.sb.from("poll_votes").select("poll_id").limit(10000)]);if(pp[0].error||pp[1].error)throw pp[0].error||pp[1].error;
+      currentHeaders=["عنوان","ناشناس","نمایش نتیجه","تعداد رأی","شروع","پایان"];
+      currentRows=(pp[0].data||[]).filter(function(p){return dateAllowed(p.created_at,f)}).map(function(p){return [p.title,p.anonymous?"بله":"خیر",p.show_results?"بله":"خیر",(pp[1].data||[]).filter(function(v){return v.poll_id===p.id}).length,dt(p.starts_at),dt(p.ends_at)]})
     }
-    q("#repResult").innerHTML=A.table(currentHeaders,currentRows.map(function(row){return '<tr>'+row.map(function(c){return '<td>'+esc(c==null?"-":c)+'</td>'}).join("")+'</tr>'}));
+    q("#repResult").innerHTML='<div class="panel-head"><div><h3>'+esc(currentTitle)+'</h3><p class="muted">'+fa(currentRows.length)+' ردیف</p></div></div>'+A.table(currentHeaders,currentRows.map(rowHtml));
     q("#repExcel").disabled=false;q("#repPrint").disabled=false
   }
   q("#repLoad").onclick=function(){run(load)};
   q("#repExcel").onclick=async function(){
-    await A.ensureSheetJS();var data=currentRows.map(function(row){var o={};currentHeaders.forEach(function(h,i){o[h]=row[i]});return o});var wb=XLSX.utils.book_new(),ws=XLSX.utils.json_to_sheet(data);XLSX.utils.book_append_sheet(wb,ws,"گزارش");XLSX.writeFile(wb,"گزارش-سامانه.xlsx")
+    await A.ensureSheetJS();var data=currentRows.map(function(row){var o={};currentHeaders.forEach(function(h,i){o[h]=row[i]});return o});var wb=XLSX.utils.book_new(),ws=XLSX.utils.json_to_sheet(data);XLSX.utils.book_append_sheet(wb,ws,currentTitle.slice(0,31));XLSX.writeFile(wb,"گزارش-"+currentTitle+".xlsx")
   };
   q("#repPrint").onclick=function(){window.print()}
 }
