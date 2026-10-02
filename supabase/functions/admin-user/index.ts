@@ -154,7 +154,6 @@ Deno.serve(async (req) => {
       }
 
       const email = `${nationalId}@school.local`;
-      const requiredAt = new Date().toISOString();
 
       const { data, error: createError } = await admin.auth.admin.createUser({
         email,
@@ -170,6 +169,8 @@ Deno.serve(async (req) => {
       if (createError || !data?.user) {
         throw new Error(`AUTH_CREATE_FAILED: ${formatError(createError || "missing created user")}`);
       }
+
+      const requiredAt = new Date().toISOString();
 
       const { error: insertError } = await admin
         .from("profiles")
@@ -242,7 +243,7 @@ Deno.serve(async (req) => {
         throw new Error("PASSWORD_TOO_SHORT");
       }
 
-      const resetAt = password ? new Date().toISOString() : null;
+      let resetAt: string | null = null;
 
       const attrs: Record<string, unknown> = {
         email: `${nationalId}@school.local`,
@@ -262,6 +263,8 @@ Deno.serve(async (req) => {
       if (authUpdateError) {
         throw new Error(`AUTH_UPDATE_FAILED: ${formatError(authUpdateError)}`);
       }
+
+      if (password) resetAt = new Date().toISOString();
 
       const profilePatch: Record<string, unknown> = {
         national_id: nationalId,
