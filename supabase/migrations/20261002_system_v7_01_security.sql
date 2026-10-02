@@ -7,7 +7,8 @@ set role postgres;
 -- 1) وضعیت امنیت حساب
 alter table public.profiles
   add column if not exists must_change_password boolean not null default false,
-  add column if not exists password_changed_at timestamptz;
+  add column if not exists password_changed_at timestamptz,
+  add column if not exists password_required_at timestamptz;
 
 create index if not exists idx_profiles_must_change_password
   on public.profiles(must_change_password)
@@ -32,6 +33,58 @@ as $$
 $$;
 
 grant execute on function public.password_change_complete() to authenticated;
+
+-- پس از تغییر رمز در Supabase Auth، این RPC با بررسی رکورد auth.users
+-- اجبار تغییر رمز را خاتمه می‌دهد. رمز فعلی نباید همان کد ملی باشد.
+create extension if not exists pgcrypto with schema extensions;
+
+create or replace function public.complete_password_change()
+returns timestamptz
+language plpgsql
+security definer
+set search_path=public
+as $
+declare
+  p public.profiles;
+  auth_updated_at timestamptz;
+  encrypted_password text;
+  changed_at timestamptz;
+begin
+  select * into p
+  from public.profiles
+  where id=auth.uid()
+  for update;
+
+  if not found then raise exception 'PROFILE_NOT_FOUND'; end if;
+  if not p.active then raise exception 'USER_INACTIVE'; end if;
+
+  select u.updated_at,u.encrypted_password
+  into auth_updated_at,encrypted_password
+  from auth.users u
+  where u.id=auth.uid();
+
+  if encrypted_password is null then raise exception 'AUTH_USER_NOT_FOUND'; end if;
+
+  if p.password_required_at is not null
+     and coalesce(auth_updated_at,'epoch'::timestamptz) <= p.password_required_at then
+    raise exception 'PASSWORD_NOT_CHANGED';
+  end if;
+
+  if extensions.crypt(p.national_id,encrypted_password)=encrypted_password then
+    raise exception 'PASSWORD_SAME_AS_NATIONAL_ID';
+  end if;
+
+  changed_at:=now();
+  update public.profiles
+  set must_change_password=false,
+      password_changed_at=changed_at
+  where id=auth.uid();
+
+  return changed_at;
+end
+$;
+
+grant execute on function public.complete_password_change() to authenticated;
 
 -- 2) Audit Log
 create table if not exists public.audit_logs (
@@ -220,4 +273,5 @@ with check(
 select
   has_table_privilege('authenticated','public.audit_logs','SELECT') as audit_select,
   not has_table_privilege('authenticated','public.audit_logs','INSERT') as audit_insert_blocked,
-  has_function_privilege('authenticated','public.password_change_complete()','EXECUTE') as password_guard_exec;
+  has_function_privilege('authenticated','public.password_change_complete()','EXECUTE') as password_guard_exec,
+  has_function_privilege('authenticated','public.complete_password_change()','EXECUTE') as password_complete_exec;
