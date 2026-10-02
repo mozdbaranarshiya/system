@@ -1,0 +1,31 @@
+(() => {
+"use strict";
+const api=window.SystemV7API;if(!api)return;const $=api.$;
+async function render(){
+  api.setPage("نظرسنجی‌ها","رأی‌گیری و سنجش نظر کاربران");
+  const {data:polls,error}=await api.state.sb.from("polls").select("*").order("created_at",{ascending:false});if(error)throw error;
+  const manager=api.state.profile.role==="manager";
+  const cards=(polls||[]).map(p=>`<article class="poll-card"><div class="panel-head"><div><span class="badge ${p.active?"":"warn"}">${p.active?"فعال":"غیرفعال"}</span><h3>${api.esc(p.title)}</h3></div><div class="actions">${manager?`<button class="btn btn-ghost poll-results" data-id="${p.id}">نتایج</button>`:`<button class="btn btn-primary poll-vote" data-id="${p.id}">رأی دادن</button><button class="btn btn-ghost poll-results" data-id="${p.id}">نتایج</button>`}</div></div><p class="muted">${api.esc(p.description||"")}</p><div class="pill-row"><span class="badge">${p.anonymous?"ناشناس":"با هویت"}</span><span class="badge">${p.show_results?"نمایش نتیجه":"نتیجه مخفی"}</span></div></article>`).join("");
+  $("#content").innerHTML=`<div class="panel-head page-actions"><div><h3>نظرسنجی‌ها</h3><p class="muted">هر کاربر فقط یک بار می‌تواند رأی بدهد.</p></div>${manager?'<button class="btn btn-primary" id="newPoll">+ نظرسنجی جدید</button>':""}</div><div class="poll-list">${cards||'<div class="card empty">نظرسنجی فعالی وجود ندارد.</div>'}</div>`;
+  if($("#newPoll"))$("#newPoll").onclick=pollModal;
+  document.querySelectorAll(".poll-vote").forEach(b=>b.onclick=()=>voteModal(b.dataset.id));
+  document.querySelectorAll(".poll-results").forEach(b=>b.onclick=()=>resultsModal(b.dataset.id));
+}
+function pollModal(){
+  const st=api.state,now=new Date(),later=new Date(Date.now()+7*86400000),local=d=>new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);
+  api.modal("نظرسنجی جدید",`<div class="form-grid"><label class="wide"><span>عنوان</span><input id="plTitle"></label><label class="wide"><span>توضیحات</span><textarea id="plDesc"></textarea></label><label><span>مخاطب</span><select id="plTarget"><option value="all">همه</option><option value="role">یک نقش</option><option value="grade">یک پایه</option><option value="class">یک کلاس</option></select></label><label><span>نقش</span><select id="plRole"><option value="student">دانش‌آموز</option><option value="teacher">دبیر</option></select></label><label><span>پایه</span><select id="plGrade">${st.grades.map(g=>`<option value="${g.id}">${api.esc(g.title)}</option>`).join("")}</select></label><label><span>کلاس</span><select id="plClass">${st.classes.map(c=>`<option value="${c.id}">${api.esc(api.className(c.id))}</option>`).join("")}</select></label><label><span>شروع</span><input id="plStart" type="datetime-local" value="${local(now)}"></label><label><span>پایان</span><input id="plEnd" type="datetime-local" value="${local(later)}"></label><label><span>ناشناس</span><select id="plAnonymous"><option value="false">خیر</option><option value="true">بله</option></select></label><label><span>نمایش نتایج</span><select id="plShow"><option value="true">بله</option><option value="false">خیر</option></select></label><label class="wide"><span>گزینه‌ها؛ هر خط یک گزینه</span><textarea id="plOptions"></textarea></label></div>`,async()=>{
+    const target=$("#plTarget").value,opts=$("#plOptions").value.split("\n").map(x=>x.trim()).filter(Boolean);if(!$("#plTitle").value.trim()||opts.length<2)throw new Error("عنوان و حداقل دو گزینه الزامی است.");
+    const p={title:$("#plTitle").value.trim(),description:$("#plDesc").value.trim()||null,target_type:target,target_role:null,target_class_id:null,target_grade_id:null,starts_at:new Date($("#plStart").value).toISOString(),ends_at:new Date($("#plEnd").value).toISOString(),anonymous:$("#plAnonymous").value==="true",show_results:$("#plShow").value==="true",active:true,created_by:st.profile.id};if(target==="role")p.target_role=$("#plRole").value;if(target==="grade")p.target_grade_id=$("#plGrade").value;if(target==="class")p.target_class_id=$("#plClass").value;
+    const {data,error}=await st.sb.from("polls").insert(p).select().single();if(error)throw error;const {error:oe}=await st.sb.from("poll_options").insert(opts.map((x,i)=>({poll_id:data.id,option_text:x,sort_order:i+1})));if(oe)throw oe;api.toast("نظرسنجی ایجاد شد.");render();
+  },"ساخت نظرسنجی");
+}
+async function voteModal(id){
+  const {data:opts,error}=await api.state.sb.from("poll_options").select("*").eq("poll_id",id).order("sort_order");if(error)return api.toast(api.errText(error),true);
+  api.modal("ثبت رأی",`<div class="poll-options">${(opts||[]).map(o=>`<label><input type="radio" name="pollOption" value="${o.id}"><span>${api.esc(o.option_text)}</span></label>`).join("")}</div>`,async()=>{const option=document.querySelector('input[name="pollOption"]:checked')?.value;if(!option)throw new Error("یک گزینه را انتخاب کنید.");const {error}=await api.state.sb.rpc("cast_poll_vote",{p_poll:id,p_option:option});if(error){const m=error.message;throw new Error(m.includes("POLL_ALREADY_VOTED")?"شما قبلاً در این نظرسنجی رأی داده‌اید.":m.includes("POLL_CLOSED")?"مهلت رأی‌گیری پایان یافته است.":m)}api.toast("رأی شما ثبت شد.");render();},"ثبت رأی");
+}
+async function resultsModal(id){
+  const {data,error}=await api.state.sb.rpc("poll_results",{p_poll:id});if(error)return api.toast(error.message.includes("POLL_RESULTS_HIDDEN")?"نمایش نتایج این نظرسنجی غیرفعال است.":api.errText(error),true);
+  api.modal("نتایج نظرسنجی",`<p class="muted">تعداد مشارکت‌کنندگان: ${api.toFaDigits(data.participants||0)} ${data.anonymous?"— رأی‌گیری ناشناس":""}</p><div class="poll-result-list">${(data.options||[]).map(o=>`<div class="poll-result"><div><strong>${api.esc(o.text)}</strong><span>${api.toFaDigits(o.votes)} رأی — ${api.toFaDigits(o.percent)}٪</span></div><div class="poll-bar"><i style="width:${Math.min(100,Number(o.percent||0))}%"></i></div></div>`).join("")}</div>`,async()=>$("#modal").close(),"بستن");
+}
+api.registerModule({nav:{manager:[["polls","نظرسنجی‌ها"]],teacher:[["polls","نظرسنجی‌ها"]],student:[["polls","نظرسنجی‌ها"]]},routes:{polls:render}});
+})();
