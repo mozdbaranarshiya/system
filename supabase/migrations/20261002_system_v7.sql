@@ -690,14 +690,21 @@ create policy v7_appointments_read on public.appointments for select to authenti
   )
 );
 drop policy if exists v7_appointments_update on public.appointments;
-create policy v7_appointments_update on public.appointments for update to authenticated using(
+drop policy if exists v7_appointments_staff_update on public.appointments;
+create policy v7_appointments_staff_update on public.appointments for update to authenticated using(
   public.v7_account_ready() and (
-    requester_id=auth.uid() or public.is_manager() or exists(select 1 from public.appointment_slots s where s.id=slot_id and s.staff_id=auth.uid())
+    public.is_manager() or exists(select 1 from public.appointment_slots s where s.id=slot_id and s.staff_id=auth.uid())
   )
 ) with check(
   public.v7_account_ready() and (
-    requester_id=auth.uid() or public.is_manager() or exists(select 1 from public.appointment_slots s where s.id=slot_id and s.staff_id=auth.uid())
+    public.is_manager() or exists(select 1 from public.appointment_slots s where s.id=slot_id and s.staff_id=auth.uid())
   )
+);
+drop policy if exists v7_appointments_requester_cancel on public.appointments;
+create policy v7_appointments_requester_cancel on public.appointments for update to authenticated using(
+  public.v7_account_ready() and requester_id=auth.uid() and status in ('pending','approved')
+) with check(
+  public.v7_account_ready() and requester_id=auth.uid() and status='cancelled'
 );
 
 drop policy if exists v7_audit_manager on public.audit_logs;
@@ -1421,7 +1428,18 @@ begin
   return query
     select 'announcement',a.id,a.title,left(a.body,120),'announcements'
     from public.announcements a
-    where a.title ilike q or a.body ilike q
+    where (a.title ilike q or a.body ilike q)
+      and (
+        public.is_manager()
+        or a.target_type='all'
+        or (a.target_type='role' and a.target_role=public.current_role())
+        or (a.target_type='user' and a.target_user_id=auth.uid())
+        or (a.target_type='class' and (public.student_in_class(a.target_class_id) or public.v7_teacher_has_class(a.target_class_id)))
+        or (a.target_type='group' and exists(
+          select 1 from public.student_group_members gm where gm.group_id=a.target_group_id and gm.student_id=auth.uid()
+        ))
+        or a.created_by=auth.uid()
+      )
     limit 6;
 
   return query
