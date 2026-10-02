@@ -170,6 +170,8 @@ Deno.serve(async (req) => {
         throw new Error(`AUTH_CREATE_FAILED: ${formatError(createError || "missing created user")}`);
       }
 
+      const requiredAt = new Date().toISOString();
+
       const { error: insertError } = await admin
         .from("profiles")
         .insert({
@@ -178,6 +180,8 @@ Deno.serve(async (req) => {
           full_name: fullName,
           role,
           active: true,
+          must_change_password: true,
+          password_required_at: requiredAt,
         });
 
       if (insertError) {
@@ -187,9 +191,27 @@ Deno.serve(async (req) => {
         throw new Error(`PROFILE_CREATE_FAILED: ${formatError(insertError)}${rollbackText}`);
       }
 
+      const { error: auditError } = await admin.from("audit_logs").insert({
+        user_id: authData.user.id,
+        action: "INSERT",
+        table_name: "profiles",
+        record_id: data.user.id,
+        old_data: null,
+        new_data: {
+          id: data.user.id,
+          national_id: nationalId,
+          full_name: fullName,
+          role,
+          active: true,
+          must_change_password: true,
+        },
+      });
+      if (auditError) console.error("AUDIT_LOG_FAILED", formatError(auditError));
+
       return json({
         ok: true,
         user_id: data.user.id,
+        must_change_password: true,
       });
     }
 
@@ -208,6 +230,20 @@ Deno.serve(async (req) => {
       ) {
         throw new Error("INVALID_DATA");
       }
+
+      const { data: oldProfile, error: oldProfileError } = await admin
+        .from("profiles")
+        .select("*")
+        .eq("id", userId)
+        .single();
+      if (oldProfileError || !oldProfile) {
+        throw new Error(`PROFILE_LOOKUP_FAILED: ${formatError(oldProfileError || "not found")}`);
+      }
+      if (password && password.length < 8) {
+        throw new Error("PASSWORD_TOO_SHORT");
+      }
+
+      let resetAt: string | null = null;
 
       const attrs: Record<string, unknown> = {
         email: `${nationalId}@school.local`,
@@ -228,20 +264,48 @@ Deno.serve(async (req) => {
         throw new Error(`AUTH_UPDATE_FAILED: ${formatError(authUpdateError)}`);
       }
 
+      if (password) resetAt = new Date().toISOString();
+
+      const profilePatch: Record<string, unknown> = {
+        national_id: nationalId,
+        full_name: fullName,
+        role,
+      };
+      if (password) {
+        profilePatch.must_change_password = true;
+        profilePatch.password_required_at = resetAt;
+      }
+
       const { error: updateError } = await admin
         .from("profiles")
-        .update({
-          national_id: nationalId,
-          full_name: fullName,
-          role,
-        })
+        .update(profilePatch)
         .eq("id", userId);
 
       if (updateError) {
         throw new Error(`PROFILE_UPDATE_FAILED: ${formatError(updateError)}`);
       }
 
-      return json({ ok: true });
+      const { error: auditError } = await admin.from("audit_logs").insert({
+        user_id: authData.user.id,
+        action: "UPDATE",
+        table_name: "profiles",
+        record_id: userId,
+        old_data: oldProfile,
+        new_data: {
+          ...oldProfile,
+          national_id: nationalId,
+          full_name: fullName,
+          role,
+          ...(password ? {
+            must_change_password: true,
+            password_required_at: resetAt,
+            security_action: "manager_password_reset",
+          } : {}),
+        },
+      });
+      if (auditError) console.error("AUDIT_LOG_FAILED", formatError(auditError));
+
+      return json({ ok: true, must_change_password: password ? true : oldProfile.must_change_password });
     }
 
     if (action === "delete") {
@@ -249,10 +313,29 @@ Deno.serve(async (req) => {
       if (!userId) throw new Error("INVALID_DATA");
       if (userId === authData.user.id) throw new Error("CANNOT_DELETE_SELF");
 
+      const { data: oldProfile, error: oldProfileError } = await admin
+        .from("profiles")
+        .select("*")
+        .eq("id", userId)
+        .single();
+      if (oldProfileError || !oldProfile) {
+        throw new Error(`PROFILE_LOOKUP_FAILED: ${formatError(oldProfileError || "not found")}`);
+      }
+
       const { error } = await admin.auth.admin.deleteUser(userId);
       if (error) {
         throw new Error(`AUTH_DELETE_FAILED: ${formatError(error)}`);
       }
+
+      const { error: auditError } = await admin.from("audit_logs").insert({
+        user_id: authData.user.id,
+        action: "DELETE",
+        table_name: "profiles",
+        record_id: userId,
+        old_data: oldProfile,
+        new_data: null,
+      });
+      if (auditError) console.error("AUDIT_LOG_FAILED", formatError(auditError));
 
       return json({ ok: true });
     }
