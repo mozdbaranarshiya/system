@@ -39,5 +39,5 @@ async function render(studentId=null){
   if($("#profileStudent"))$("#profileStudent").onchange=e=>render(e.target.value);
   document.querySelectorAll(".profile-tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".profile-tab").forEach(x=>{x.classList.toggle("btn-primary",x===b);x.classList.toggle("btn-ghost",x!==b)});document.querySelectorAll(".profile-panel").forEach(pn=>pn.classList.toggle("hidden",pn.dataset.panel!==b.dataset.tab));});
 }
-api.registerModule({nav:{manager:[["studentProfile","پرونده دانش‌آموز"]],teacher:[["studentProfile","پرونده دانش‌آموز"]],student:[["studentProfile","پرونده من"]]},routes:{studentProfile:()=>render()}});
+api.registerModule({nav:{manager:[["studentProfile","پرونده دانش‌آموز"]],teacher:[["studentProfile","پرونده دانش‌آموز"]],student:[["studentProfile","پرونده من"]]},routes:{studentProfile:()=>{const selected=window.SystemV7SelectedStudent||null;window.SystemV7SelectedStudent=null;return render(selected)}}});
 })();
