@@ -80,6 +80,10 @@ const state = {
   profiles:[], grades:[], classes:[], subjects:[], assignments:[], classStudents:[], representatives:[],
   refsLoadedAt:0, refsPromise:null, pageCache:new Map()
 };
+window.SCHOOL_V7?.bind({
+  state,$,esc,toFaDigits,toEnDigits,faDateTime,toast,errText,modal,table,setPage,
+  refreshRefs,buildNav,navigate,className,subjectName,userName,ensureSheetJS
+});
 const externalScripts=new Map();
 function loadExternalScript(src,globalName){
   if(globalName&&window[globalName])return Promise.resolve(window[globalName]);
@@ -474,12 +478,17 @@ async function enterApp(){
 
   showOnlyView("#appView");
   $("#userName").textContent=data.full_name;
+  if(data.must_change_password){
+    window.SCHOOL_V7?.afterEnter?.();
+    return window.SCHOOL_V7?.forcePasswordChange?.();
+  }
   $("#avatar").textContent=(data.full_name||"ک").trim().charAt(0);
 
   const warm=loadRefsFromSession();
   if(warm){
     setRoleLabel();
     buildNav();
+    window.SCHOOL_V7?.afterEnter?.();
     navigate("dashboard");
     refreshRefs(true).then(()=>{
       setRoleLabel();
@@ -491,6 +500,7 @@ async function enterApp(){
   await refreshRefs();
   setRoleLabel();
   buildNav();
+  window.SCHOOL_V7?.afterEnter?.();
   navigate("dashboard");
 }
 function buildNav(){
@@ -504,6 +514,8 @@ function buildNav(){
     teacher:[["dashboard","داشبورد"],["scores","ثبت نمرات"],["homework","تکالیف"],["groups","گروه‌های کلاسی"],["announcements","اطلاعیه‌ها"],["objections","اعتراضات"]],
     student:studentMenu
   };
+  const v7Menu=window.SCHOOL_V7?.menuFor?.(state.profile.role)||[];
+  menus[state.profile.role].push(...v7Menu);
   $("#mainNav").innerHTML=menus[state.profile.role].map(([r,t])=>`<button class="nav-btn" data-route="${r}">${t}</button>`).join("");
   $("#mainNav").querySelectorAll("button").forEach(b=>b.onclick=()=>navigate(b.dataset.route));
 }
@@ -549,6 +561,7 @@ async function navigate(route){
   document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.route===route));
   setLoading();
   try{
+    if(window.SCHOOL_V7?.hasRoute?.(route))return window.SCHOOL_V7.navigate(route);
     if(route==="dashboard")return renderDashboard();
     if(route==="users")return renderUsers();
     if(route==="structure")return renderStructure();
@@ -810,7 +823,7 @@ async function announcementModal(){
 
 async function renderReport(){
   setPage("کارنامه من","کارنامه سال تحصیلی بر اساس الگوی رسمی");
-  const {data:settings,error:settingsError}=await state.sb.from("school_settings").select("objections_open,report_cards_open").eq("id",true).maybeSingle();
+  const {data:settings,error:settingsError}=await state.sb.from("school_settings").select("objections_open,report_cards_open,passing_score").eq("id",true).maybeSingle();
   if(settingsError)throw settingsError;
   if(state.profile.role==="student"&&settings?.report_cards_open===false){
     $("#content").innerHTML='<div class="card report-closed"><div class="setting-icon">▤</div><h3>نمایش کارنامه غیرفعال است</h3><p class="muted">مدیر مدرسه در حال حاضر امکان مشاهده کارنامه را بسته است.</p></div>';
@@ -820,12 +833,15 @@ async function renderReport(){
   const myClass=myClassLink?byId(state.classes,myClassLink.class_id):null;
   const grade=myClass?byId(state.grades,myClass.grade_id):null;
 
-  const [{data:scores,error:scoreError},{data:discipline,error:disciplineError}]=await Promise.all([
+  const [{data:scores,error:scoreError},{data:discipline,error:disciplineError},{data:attendance,error:attendanceError}]=await Promise.all([
     state.sb.from("scores").select("*").eq("student_id",state.profile.id).order("period"),
-    state.sb.from("discipline_scores").select("*").eq("student_id",state.profile.id)
+    state.sb.from("discipline_scores").select("*").eq("student_id",state.profile.id),
+    state.sb.from("attendance_records").select("status,delay_minutes").eq("student_id",state.profile.id)
   ]);
   if(scoreError)throw scoreError;
   if(disciplineError)throw disciplineError;
+  if(attendanceError)throw attendanceError;
+  const passingScore=Number(settings?.passing_score??10);
 
   const subjects=grade?state.subjects.filter(s=>s.grade_id===grade.id):[...new Set((scores||[]).map(s=>s.subject_id))].map(id=>byId(state.subjects,id)).filter(Boolean);
   const scoreFor=(sid,needle)=>(scores||[]).find(s=>s.subject_id===sid&&String(s.period||"").includes(needle));
@@ -837,7 +853,7 @@ async function renderReport(){
     const lesson2=p2.lesson_score==null?null:Number(p2.lesson_score);
     const annual=lesson1!=null&&lesson2!=null?(lesson1+lesson2)/2:null;
     if(annual!=null)values.push(annual);
-    const status=annual==null?"-":annual>=10?"قبول":"نیاز به تلاش";
+    const status=annual==null?"-":annual>=passingScore?"قبول":"نیاز به تلاش";
     const objectionScore=p2.id||p1.id;
     const objectionSubject=sub.id;
     return `<tr>
@@ -845,7 +861,7 @@ async function renderReport(){
       <td>${p1.continuous_score??"-"}</td><td>${p1.final_score??"-"}</td><td class="term-score">${lesson1==null?"-":lesson1.toFixed(2)}</td>
       <td>${p2.continuous_score??"-"}</td><td>${p2.final_score??"-"}</td><td class="term-score">${lesson2==null?"-":lesson2.toFixed(2)}</td>
       <td class="annual-score">${annual==null?"-":annual.toFixed(2)}</td>
-      <td><span class="badge ${annual!=null&&annual<10?"warn":""}">${status}</span></td>
+      <td><span class="badge ${annual!=null&&annual<passingScore?"warn":""}">${status}</span></td>
       <td class="no-print">${objectionScore?`<button class="btn btn-ghost obj-btn" data-id="${objectionScore}" data-subject="${objectionSubject}" ${settings?.objections_open?"":"disabled"}>اعتراض</button>`:"-"}</td>
     </tr>`;
   }).join("");
@@ -853,6 +869,10 @@ async function renderReport(){
   const average=values.length?values.reduce((a,b)=>a+b,0)/values.length:null;
   const disciplineScore=(discipline||[])[0]?.score;
   const disciplineText=disciplineScore?disciplineLabels[disciplineScore]:"ثبت نشده";
+  const attendanceRows=attendance||[];
+  const absenceCount=attendanceRows.filter(x=>["absent","excused","unexcused"].includes(x.status)).length;
+  const unexcusedCount=attendanceRows.filter(x=>x.status==="unexcused").length;
+  const lateCount=attendanceRows.filter(x=>x.status==="late").length;
 
   $("#content").innerHTML=`
     <div class="report-actions no-print">
@@ -889,7 +909,10 @@ async function renderReport(){
       <div class="report-summary">
         <div><small>معدل</small><strong>${average==null?"-":average.toFixed(2)}</strong></div>
         <div><small>انضباط</small><strong>${esc(disciplineText)}</strong></div>
-        <div><small>نتیجه</small><strong>${average==null?"-":average>=10?"قبول":"نیاز به تلاش"}</strong></div>
+        <div><small>نتیجه</small><strong>${average==null?"-":average>=passingScore?"قبول":"نیاز به تلاش"}</strong></div>
+        <div><small>غیبت کل</small><strong>${absenceCount}</strong></div>
+        <div><small>غیبت غیرموجه</small><strong>${unexcusedCount}</strong></div>
+        <div><small>تأخیر</small><strong>${lateCount}</strong></div>
       </div>
       <div class="report-signatures"><span>امضای مدیر مدرسه</span><span>امضای ولی دانش‌آموز</span></div>
     </section>`;
