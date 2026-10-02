@@ -21,7 +21,7 @@ language sql
 stable
 security invoker
 set search_path=public
-as $
+as $$
   select jsonb_build_object(
     'profiles', coalesce((
       select jsonb_agg(jsonb_build_object(
@@ -73,7 +73,7 @@ as $
       from public.class_representatives cr
     ), '[]'::jsonb)
   )
-$;
+$$;
 
 grant execute on function public.get_app_bootstrap() to authenticated;
 
@@ -106,7 +106,7 @@ returns timestamptz
 language plpgsql
 security definer
 set search_path=public
-as $
+as $$
 declare
   p public.profiles;
   auth_updated_at timestamptz;
@@ -145,7 +145,7 @@ begin
 
   return changed_at;
 end
-$;
+$$;
 
 grant execute on function public.complete_password_change() to authenticated;
 
