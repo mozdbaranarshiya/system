@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">نشان سامانه مدرسه</title>
+  <desc id="desc">کتاب باز، سقف مدرسه و عنصر دیجیتال مینیمال</desc>
+  <defs>
+    <linearGradient id="bg" x1="72" y1="56" x2="438" y2="464" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0B5EA8"/>
+      <stop offset="1" stop-color="#07968D"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="148" y1="226" x2="366" y2="382" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#DFF7F4"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="118" fill="url(#bg)"/>
+  <path d="M132 221 256 135l124 86" fill="none" stroke="#fff" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M166 226v-44m180 44v-44" stroke="#fff" stroke-width="22" stroke-linecap="round"/>
+  <path d="M105 250c55-17 103-9 151 25 48-34 96-42 151-25v135c-55-17-103-9-151 25-48-34-96-42-151-25V250Z" fill="url(#paper)" stroke="#fff" stroke-width="12" stroke-linejoin="round"/>
+  <path d="M256 275v135" stroke="#0B5EA8" stroke-opacity=".42" stroke-width="10" stroke-linecap="round"/>
+  <path d="M142 287c34-4 59 2 83 16m-83 40c34-4 59 2 83 16m145-72c-34-4-59 2-83 16m83 40c-34-4-59 2-83 16" fill="none" stroke="#0B5EA8" stroke-opacity=".55" stroke-width="10" stroke-linecap="round"/>
+  <g fill="#BEEFE8">
+    <rect x="385" y="105" width="22" height="22" rx="5"/>
+    <rect x="417" y="105" width="22" height="22" rx="5" opacity=".72"/>
+    <rect x="417" y="137" width="22" height="22" rx="5" opacity=".48"/>
+  </g>
+</svg>
