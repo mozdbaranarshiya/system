@@ -27,9 +27,10 @@ function validatePassword(password,confirmPassword,nationalId=""){
   return p;
 }
 
-function passwordFormHtml({forced=false}={}){
+function passwordFormHtml({forced=false,prefix="security"}={}){
+  const p=String(prefix||"security").replace(/[^a-zA-Z0-9_-]/g,"");
   return `
-    <div class="security-password-form">
+    <div class="security-password-form" data-password-prefix="${p}">
       <div class="security-password-head">
         <span class="security-shield">✓</span>
         <div>
@@ -37,9 +38,9 @@ function passwordFormHtml({forced=false}={}){
           <p class="muted">${forced?"برای ادامه استفاده از سامانه، رمز اولیه را تغییر دهید.":"رمز جدید حداقل ۸ کاراکتر باشد و با کد ملی یکسان نباشد."}</p>
         </div>
       </div>
-      <label><span>رمز جدید</span><input id="newPassword" type="password" autocomplete="new-password" minlength="8"></label>
-      <label><span>تکرار رمز جدید</span><input id="confirmPassword" type="password" autocomplete="new-password" minlength="8"></label>
-      <button id="changeOwnPassword" class="btn btn-primary full" type="button">${forced?"تغییر رمز و ادامه":"ذخیره رمز جدید"}</button>
+      <label><span>رمز جدید</span><input id="${p}NewPassword" type="password" autocomplete="new-password" minlength="8"></label>
+      <label><span>تکرار رمز جدید</span><input id="${p}ConfirmPassword" type="password" autocomplete="new-password" minlength="8"></label>
+      <button id="${p}ChangePassword" class="btn btn-primary full" type="button">${forced?"تغییر رمز و ادامه":"ذخیره رمز جدید"}</button>
     </div>`;
 }
 
