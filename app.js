@@ -2,6 +2,7 @@
 "use strict";
 
 const cfg = window.APP_CONFIG || {};
+const v7Security = window.SystemV7Security || null;
 const configured = cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY &&
   !cfg.SUPABASE_URL.includes("YOUR_PROJECT") && !cfg.SUPABASE_ANON_KEY.includes("YOUR_");
 
@@ -161,7 +162,13 @@ function errText(e){
     NOTHING_ARCHIVED:"هیچ نمره‌ای به بایگانی منتقل نشد.",
     MFA_REQUIRED:"برای عملیات مدیریتی باید کد دومرحله‌ای تأیید شود.",
     MFA_LEVEL_NOT_UPGRADED:"سطح امنیت نشست مدیر به AAL2 ارتقا پیدا نکرد.",
-    MFA_ENROLL_INCOMPLETE:"اطلاعات راه‌اندازی Ente Auth کامل دریافت نشد. دوباره وارد شوید."};
+    MFA_ENROLL_INCOMPLETE:"اطلاعات راه‌اندازی Ente Auth کامل دریافت نشد. دوباره وارد شوید.",
+    PASSWORD_TOO_SHORT:"رمز جدید باید حداقل ۸ کاراکتر باشد.",
+    PASSWORD_SAME_AS_NATIONAL_ID:"رمز جدید نباید همان کد ملی باشد.",
+    PASSWORD_UPDATE_FAILED:"تغییر رمز انجام نشد. دوباره تلاش کنید.",
+    PASSWORD_COMPLETION_FAILED:"تغییر رمز انجام شد اما فعال‌سازی حساب کامل نشد.",
+    PASSWORD_NOT_CHANGED:"رمز حساب هنوز تغییر نکرده است.",
+    PROFILE_NOT_FOUND:"پروفایل کاربری پیدا نشد."};
   return map[m]||m;
 }
 async function invokeFunction(name, body){
@@ -216,7 +223,7 @@ function clearPageCache(prefix=""){
 
 
 function showOnlyView(view){
-  ["#loginView","#mfaView","#appView"].forEach(sel=>$(sel)?.classList.add("hidden"));
+  ["#loginView","#mfaView","#passwordView","#appView"].forEach(sel=>$(sel)?.classList.add("hidden"));
   $(view)?.classList.remove("hidden");
 }
 async function currentMfaLevel(){
@@ -413,8 +420,88 @@ function showLogin(){
   state.profile=null; state.refsLoadedAt=0; state.pageCache.clear();
   $("#appView").classList.add("hidden");
   $("#mfaView")?.classList.add("hidden");
+  $("#passwordView")?.classList.add("hidden");
   $("#loginView").classList.remove("hidden");
 }
+
+async function changeOwnPasswordFrom(prefix){
+  if(!v7Security)throw new Error("ماژول امنیت حساب بارگذاری نشده است.");
+  const newInput=$(`#${prefix}NewPassword`);
+  const confirmInput=$(`#${prefix}ConfirmPassword`);
+  const button=$(`#${prefix}ChangePassword`);
+  const password=v7Security.validatePassword(
+    toEnDigits(newInput?.value||""),
+    toEnDigits(confirmInput?.value||""),
+    state.profile?.national_id||""
+  );
+  const old=button?.textContent||"ذخیره";
+  if(button){button.disabled=true;button.textContent="در حال تغییر رمز…";}
+  try{
+    await invokeFunction("change-password",{new_password:password});
+    state.profile.must_change_password=false;
+    state.profile.password_changed_at=new Date().toISOString();
+    if(newInput)newInput.value="";
+    if(confirmInput)confirmInput.value="";
+    return true;
+  }finally{
+    if(button){button.disabled=false;button.textContent=old;}
+  }
+}
+
+function waitForMandatoryPasswordChange(){
+  return new Promise(resolve=>{
+    showOnlyView("#passwordView");
+    $("#forcedPasswordBody").innerHTML=v7Security
+      ? v7Security.passwordFormHtml({forced:true,prefix:"forced"})
+      : '<div class="alert alert-warning">ماژول امنیت حساب بارگذاری نشده است.</div>';
+    let settled=false;
+    const done=value=>{if(settled)return;settled=true;resolve(value);};
+    const btn=$("#forcedChangePassword");
+    if(btn)btn.onclick=async()=>{
+      try{
+        await changeOwnPasswordFrom("forced");
+        toast("رمز با موفقیت تغییر کرد. دسترسی حساب فعال شد.");
+        done(true);
+      }catch(e){toast(errText(e),true)}
+    };
+    $("#forcedPasswordLogout").onclick=async()=>{
+      try{await state.sb.auth.signOut()}catch(_){}
+      showLogin();
+      done(false);
+    };
+    setTimeout(()=>$("#forcedNewPassword")?.focus(),80);
+  });
+}
+
+async function renderAccountSecurity(){
+  setPage("امنیت حساب","رمز عبور و وضعیت امنیت حساب");
+  const isManager=state.profile.role==="manager";
+  let mfaHtml="";
+  if(isManager){
+    try{
+      const {data}=await state.sb.auth.mfa.listFactors();
+      const verified=(data?.totp||[]).filter(f=>f.status==="verified").length;
+      mfaHtml=`<div class="card"><div class="panel-head"><h3>ورود دومرحله‌ای مدیر</h3><span class="badge">${verified?"فعال":"نیاز به اتصال"}</span></div><p class="muted">ورود مدیر با TOTP و سطح امنیتی AAL2 محافظت می‌شود.</p></div>`;
+    }catch(_){}
+  }
+  $("#content").innerHTML=`<div class="security-card-grid">
+    <div class="card">${v7Security.passwordFormHtml({forced:false,prefix:"account"})}</div>
+    <div class="card"><h3>وضعیت حساب</h3><div class="security-info-list">
+      <div class="security-info-row"><span>نام کاربر</span><strong>${esc(state.profile.full_name)}</strong></div>
+      <div class="security-info-row"><span>نقش</span><strong>${esc(faRole[state.profile.role]||state.profile.role)}</strong></div>
+      <div class="security-info-row"><span>ایجاد حساب</span><strong>${faDateTime(state.profile.created_at)}</strong></div>
+      <div class="security-info-row"><span>آخرین تغییر رمز</span><strong>${state.profile.password_changed_at?faDateTime(state.profile.password_changed_at):"ثبت نشده"}</strong></div>
+      <div class="security-info-row"><span>رمز اولیه</span><strong>${state.profile.must_change_password?"نیاز به تغییر":"تغییر داده شده"}</strong></div>
+    </div></div>${mfaHtml}</div>`;
+  $("#accountChangePassword").onclick=async()=>{
+    try{
+      await changeOwnPasswordFrom("account");
+      toast("رمز عبور با موفقیت تغییر کرد.");
+      renderAccountSecurity();
+    }catch(e){toast(errText(e),true)}
+  };
+}
+
 function refsStorageKey(){return state.session?.user?.id?`school-refs-v610:${state.session.user.id}`:null;}
 function applyRefBundle(data){
   if(!data||typeof data!=="object")return false;
@@ -470,6 +557,11 @@ async function enterApp(){
       showLogin();
       return toast("راه‌اندازی احراز هویت دومرحله‌ای مدیر انجام نشد: "+errText(e),true);
     }
+  }
+
+  if(data.must_change_password){
+    const changed=await waitForMandatoryPasswordChange();
+    if(!changed)return;
   }
 
   showOnlyView("#appView");
