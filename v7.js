@@ -536,7 +536,7 @@ async function renderBehavior(){
   var query=A.state.sb.from("behavior_events").select("*").order("event_date",{ascending:false}).limit(300);if(isStudent())query=query.eq("student_id",A.state.profile.id);
   var r=await query;if(r.error)throw r.error;var rows=r.data||[];
   var add=!isStudent()?'<button class="btn btn-primary" id="addBehavior">+ رویداد رفتاری</button>':"";
-  q("#content").innerHTML=card("رویدادها",A.table(["دانش‌آموز","تاریخ","عنوان","نوع","امتیاز","توضیح"],rows.map(function(x){return '<tr><td>'+esc(A.userName(x.student_id))+'</td><td>'+d(x.event_date)+'</td><td>'+esc(x.title)+'</td><td>'+badge(typeLabels[x.event_type],x.event_type==="negative"?"danger":"")+'</td><td>'+fa(x.points)+'</td><td>'+esc(x.description||"-")+'</td></tr>')),add);
+  q("#content").innerHTML=card("رویدادها",A.table(["دانش‌آموز","تاریخ","عنوان","نوع","امتیاز","توضیح"],rows.map(function(x){return '<tr><td>'+esc(A.userName(x.student_id))+'</td><td>'+d(x.event_date)+'</td><td>'+esc(x.title)+'</td><td>'+badge(typeLabels[x.event_type],x.event_type==="negative"?"danger":"")+'</td><td>'+fa(x.points)+'</td><td>'+esc(x.description||"-")+'</td></tr>'})),add);
   if(q("#addBehavior"))q("#addBehavior").onclick=async function(){
     var cats=await A.state.sb.from("behavior_categories").select("*").eq("active",true).order("title");if(cats.error)return A.toast(err(cats.error),true);
     var allowed=A.state.profiles.filter(function(p){
