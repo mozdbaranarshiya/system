@@ -80,3 +80,12 @@
 .v7-answer-detail{display:grid;gap:8px;padding:11px;border:1px solid var(--line);border-radius:11px;background:var(--surface-soft)}
 .v7-answer-detail small{color:var(--muted)}
 .v7-table-actions{display:flex;gap:6px;flex-wrap:wrap}
+
+.report-trend{margin-top:20px;padding:16px;border:1px solid var(--line);border-radius:16px;background:var(--surface-soft)}
+.report-trend-row{display:grid;grid-template-columns:140px 1fr;gap:12px;align-items:center;margin:9px 0}
+.report-trend-row>span{font-size:.78rem;font-weight:700}
+.report-trend-bars{display:grid;gap:4px}
+.report-trend-bars i{display:block;min-width:2px;height:20px;border-radius:7px;background:var(--brand);position:relative;font-style:normal}
+.report-trend-bars i.term2{background:var(--info)}
+.report-trend-bars b{position:absolute;left:7px;top:1px;color:#fff;font-size:.68rem}
+@media(max-width:600px){.report-trend-row{grid-template-columns:1fr}.report-trend-bars{min-width:0}}
