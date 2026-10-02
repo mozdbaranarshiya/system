@@ -14,6 +14,69 @@ create index if not exists idx_profiles_must_change_password
   on public.profiles(must_change_password)
   where must_change_password = true;
 
+-- Bootstrap نسخه ۶.۱ حفظ می‌شود و فقط فیلدهای امنیت حساب به پروفایل افزوده می‌شوند.
+create or replace function public.get_app_bootstrap()
+returns jsonb
+language sql
+stable
+security invoker
+set search_path=public
+as $
+  select jsonb_build_object(
+    'profiles', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id',p.id,
+        'national_id',p.national_id,
+        'full_name',p.full_name,
+        'role',p.role,
+        'active',p.active,
+        'created_at',p.created_at,
+        'must_change_password',p.must_change_password,
+        'password_changed_at',p.password_changed_at
+      ) order by p.full_name)
+      from public.profiles p
+    ), '[]'::jsonb),
+    'grades', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id',g.id,'title',g.title,'sort_order',g.sort_order
+      ) order by g.sort_order,g.title)
+      from public.grade_levels g
+    ), '[]'::jsonb),
+    'classes', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id',c.id,'grade_id',c.grade_id,'title',c.title,'academic_year',c.academic_year
+      ) order by c.title)
+      from public.classes c
+    ), '[]'::jsonb),
+    'subjects', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id',s.id,'grade_id',s.grade_id,'title',s.title
+      ) order by s.title)
+      from public.subjects s
+    ), '[]'::jsonb),
+    'assignments', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id',ta.id,'teacher_id',ta.teacher_id,'class_id',ta.class_id,'subject_id',ta.subject_id
+      ) order by ta.id)
+      from public.teacher_assignments ta
+    ), '[]'::jsonb),
+    'classStudents', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'class_id',cs.class_id,'student_id',cs.student_id
+      ) order by cs.class_id,cs.student_id)
+      from public.class_students cs
+    ), '[]'::jsonb),
+    'representatives', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'class_id',cr.class_id,'student_id',cr.student_id
+      ) order by cr.class_id)
+      from public.class_representatives cr
+    ), '[]'::jsonb)
+  )
+$;
+
+grant execute on function public.get_app_bootstrap() to authenticated;
+
 -- کاربران فعلی مختل نمی‌شوند؛ فقط کاربران جدید/رمزهای بازنشانی‌شده اجبار خواهند داشت.
 update public.profiles
 set must_change_password=false
