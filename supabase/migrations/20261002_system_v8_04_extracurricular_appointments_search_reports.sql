@@ -546,20 +546,24 @@ begin
       limit 15
     ),'[]'::jsonb),
     'content',coalesce((
-      select jsonb_agg(x)
+      select jsonb_agg(z.x)
       from (
-        select jsonb_build_object('id',a.id,'title',a.title,'type','homework','route','homework') x
-        from public.assignments a where a.title ilike '%'||q||'%' limit 8
-        union all
-        select jsonb_build_object('id',e.id,'title',e.title,'type','exam','route','exams')
-        from public.exams e where e.title ilike '%'||q||'%' limit 8
-        union all
-        select jsonb_build_object('id',f.id,'title',f.title,'type','form','route','forms')
-        from public.forms f where f.title ilike '%'||q||'%' limit 8
-        union all
-        select jsonb_build_object('id',x.id,'title',x.title,'type','extracurricular','route','extracurricular')
-        from public.extracurricular_classes x where x.title ilike '%'||q||'%' limit 8
-      ) z(x)
+        select q2.x
+        from (
+          select jsonb_build_object('id',a.id,'title',a.title,'type','homework','route','homework') x
+          from public.assignments a where a.title ilike '%'||q||'%'
+          union all
+          select jsonb_build_object('id',e.id,'title',e.title,'type','exam','route','exams')
+          from public.exams e where e.title ilike '%'||q||'%'
+          union all
+          select jsonb_build_object('id',f.id,'title',f.title,'type','form','route','forms')
+          from public.forms f where f.title ilike '%'||q||'%'
+          union all
+          select jsonb_build_object('id',ec.id,'title',ec.title,'type','extracurricular','route','extracurricular')
+          from public.extracurricular_classes ec where ec.title ilike '%'||q||'%'
+        ) q2
+        limit 32
+      ) z
     ),'[]'::jsonb)
   );
 end
@@ -595,7 +599,7 @@ begin
       'today_schedule',(select count(*) from public.timetable_entries where teacher_id=auth.uid() and weekday=case extract(dow from current_date)::int when 6 then 0 when 0 then 1 when 1 then 2 when 2 then 3 when 3 then 4 when 4 then 5 else -1 end),
       'pending_homework',(select count(*) from public.assignment_submissions s join public.assignments a on a.id=s.assignment_id where a.teacher_id=auth.uid() and s.status='submitted'),
       'upcoming_exams',(select count(*) from public.exams where teacher_id=auth.uid() and start_at between now() and now()+interval '7 days'),
-      'pending_objections',(select count(*) from public.objections o join public.scores sc on sc.id=o.score_id where sc.teacher_id=auth.uid() and o.status='pending'),
+      'pending_objections',(select count(*) from public.objections o join public.scores sc on sc.id=o.score_id where public.teacher_has_access(sc.class_id,sc.subject_id) and o.status='pending'),
       'pending_appointments',(select count(*) from public.appointments a join public.appointment_slots s on s.id=a.slot_id where s.staff_id=auth.uid() and a.status='pending'),
       'unread_notifications',(select count(*) from public.notifications where user_id=auth.uid() and read_at is null)
     );
@@ -638,6 +642,7 @@ begin
         and (student_filter is null or p.id=student_filter)
     ),'[]'::jsonb);
   elsif p_type='teachers' then
+    if r<>'manager' then raise exception 'ACCESS_DENIED'; end if;
     return coalesce((select jsonb_agg(jsonb_build_object('id',p.id,'name',p.full_name,'national_id',p.national_id,'active',p.active)) from public.profiles p where p.role='teacher'),'[]'::jsonb);
   elsif p_type='classes' then
     return coalesce((select jsonb_agg(jsonb_build_object('id',c.id,'class',c.title,'year',c.academic_year,'grade',g.title)) from public.classes c join public.grade_levels g on g.id=c.grade_id where public.can_read_class(c.id) and (class_filter is null or c.id=class_filter)),'[]'::jsonb);
@@ -660,7 +665,7 @@ begin
   elsif p_type='forms' then
     return coalesce((select jsonb_agg(to_jsonb(s)) from public.form_submissions s where (student_filter is null or s.user_id=student_filter)),'[]'::jsonb);
   elsif p_type='polls' then
-    return coalesce((select jsonb_agg(jsonb_build_object('id',p.id,'title',p.title,'anonymous',p.anonymous,'starts_at',p.starts_at,'ends_at',p.ends_at)) from public.polls p),'[]'::jsonb);
+    return coalesce((select jsonb_agg(jsonb_build_object('id',p.id,'title',p.title,'anonymous',p.anonymous,'starts_at',p.starts_at,'ends_at',p.ends_at)) from public.polls p where public.target_visible(p.target_type,p.target_role,p.target_grade_id,p.target_class_id,p.target_user_id)),'[]'::jsonb);
   end if;
   raise exception 'REPORT_TYPE_INVALID';
 end
