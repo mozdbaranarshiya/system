@@ -178,6 +178,7 @@ Deno.serve(async (req) => {
           full_name: fullName,
           role,
           active: true,
+          must_change_password: true,
         });
 
       if (insertError) {
@@ -234,6 +235,7 @@ Deno.serve(async (req) => {
           national_id: nationalId,
           full_name: fullName,
           role,
+          ...(password ? { must_change_password: true } : {}),
         })
         .eq("id", userId);
 
