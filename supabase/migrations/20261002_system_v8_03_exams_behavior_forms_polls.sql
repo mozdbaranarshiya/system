@@ -90,10 +90,9 @@ alter table public.exam_questions enable row level security;
 alter table public.exam_attempts enable row level security;
 alter table public.exam_answers enable row level security;
 
--- Students never receive direct SELECT privilege on question bank/options.
--- They receive sanitized question JSON only through get_exam_for_student().
-revoke select on public.question_bank,public.question_options,public.exam_questions from authenticated;
-grant select on public.question_bank,public.question_options,public.exam_questions to service_role;
+-- Correct answers stay protected by RLS: only the owning teacher/manager can read
+-- question_bank/question_options directly. Students receive sanitized question JSON
+-- only through get_exam_for_student().
 
 drop policy if exists question_bank_owner on public.question_bank;
 create policy question_bank_owner on public.question_bank for all to authenticated
