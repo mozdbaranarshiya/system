@@ -1,15 +1,16 @@
 {
+  "id": "./",
   "name": "سامانه مدیریت مدرسه",
   "short_name": "مدرسه",
   "lang": "fa",
   "dir": "rtl",
-  "start_url": "./",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#f2f6f7",
-  "theme_color": "#0b6f91",
+  "theme_color": "#2563eb",
+  "background_color": "#f4f6fb",
   "icons": [
-    {"src": "./assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
-    {"src": "./assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+    {"src": "./assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "./assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"}
   ]
 }

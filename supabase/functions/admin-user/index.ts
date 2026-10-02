@@ -107,7 +107,7 @@ Deno.serve(async (req) => {
     // Manager authorization is checked with the server/admin client.
     const { data: callerProfile, error: profileError } = await admin
       .from("profiles")
-      .select("role, active")
+      .select("role, active, must_change_password")
       .eq("id", authData.user.id)
       .single();
 
@@ -115,6 +115,7 @@ Deno.serve(async (req) => {
       throw new Error(`PROFILE_LOOKUP_FAILED: ${formatError(profileError)}`);
     }
     if (!callerProfile?.active) throw new Error("USER_INACTIVE");
+    if (callerProfile.must_change_password) throw new Error("ACCOUNT_NOT_READY");
     if (callerProfile.role !== "manager") throw new Error("MANAGER_ONLY");
 
     // Manager operations require a second factor (TOTP / AAL2), not only
@@ -170,16 +171,18 @@ Deno.serve(async (req) => {
         throw new Error(`AUTH_CREATE_FAILED: ${formatError(createError || "missing created user")}`);
       }
 
-      const { error: insertError } = await admin
-        .from("profiles")
-        .insert({
-          id: data.user.id,
+      const { error: insertError } = await admin.rpc("apply_profile_patch", {
+        p_user: data.user.id,
+        p_actor: authData.user.id,
+        p_create: true,
+        p_patch: {
           national_id: nationalId,
           full_name: fullName,
           role,
           active: true,
           must_change_password: true,
-        });
+        },
+      });
 
       if (insertError) {
         // Roll back Auth user if profile creation fails.
@@ -200,6 +203,7 @@ Deno.serve(async (req) => {
       const fullName = String(body.full_name || "").trim();
       const role = String(body.role || "");
       const password = body.password ? String(body.password) : undefined;
+      if (password && password.length < 8) throw new Error("WEAK_PASSWORD");
 
       if (
         !userId ||
@@ -221,6 +225,13 @@ Deno.serve(async (req) => {
       };
 
       if (password) attrs.password = password;
+      if (password) {
+        // Close the account gate before changing the password for active sessions.
+        const { error: gateError } = await admin.rpc("apply_profile_patch", {
+          p_user: userId, p_actor: authData.user.id, p_patch: { must_change_password: true },
+        });
+        if (gateError) throw new Error("PROFILE_UPDATE_FAILED");
+      }
 
       const { error: authUpdateError } =
         await admin.auth.admin.updateUserById(userId, attrs);
@@ -229,15 +240,16 @@ Deno.serve(async (req) => {
         throw new Error(`AUTH_UPDATE_FAILED: ${formatError(authUpdateError)}`);
       }
 
-      const { error: updateError } = await admin
-        .from("profiles")
-        .update({
+      const { error: updateError } = await admin.rpc("apply_profile_patch", {
+        p_user: userId,
+        p_actor: authData.user.id,
+        p_patch: {
           national_id: nationalId,
           full_name: fullName,
           role,
           ...(password ? { must_change_password: true } : {}),
-        })
-        .eq("id", userId);
+        },
+      });
 
       if (updateError) {
         throw new Error(`PROFILE_UPDATE_FAILED: ${formatError(updateError)}`);

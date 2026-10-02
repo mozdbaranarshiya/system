@@ -1,0 +1,19 @@
+{
+  "name": "system",
+  "version": "7.0.0",
+  "description": "سامانه مدرسه فارسی و RTL با Supabase؛ بدون نیاز به build",
+  "scripts": {
+    "test": "node tests/migrations-check.mjs && node tests/security.mjs && node tests/unit.mjs && node tests/edge.mjs && node tests/ui.mjs",
+    "test:ui": "node tests/ui.mjs",
+    "test:xlsx": "node tests/xlsx.mjs",
+    "test:browser": "node tests/browser.mjs",
+    "check": "node tests/syntax.mjs"
+  },
+  "type": "commonjs",
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "jsdom": "30.1.1",
+    "playwright": "1.62.1"
+  },
+  "private": true
+}

@@ -3,29 +3,46 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta name="theme-color" content="#0b6f91" />
-  <meta name="application-name" content="سامانه مدیریت مدرسه" />
-  <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="icon" type="image/svg+xml" href="./assets/icons/logo.svg" />
-  <link rel="icon" type="image/png" sizes="32x32" href="./assets/icons/favicon-32x32.png" />
-  <link rel="apple-touch-icon" href="./assets/icons/apple-touch-icon.png" />
+  <meta name="theme-color" content="#2563eb" />
   <title>سامانه آموزش و پرورش استان اصفهان</title>
   <link rel="preconnect" href="https://efibfevyiepkwpnobaro.supabase.co" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vazirmatn@33.0.3/Vazirmatn-Variable-font-face.css">
   <link rel="stylesheet" href="./styles.css" />
-  <link rel="stylesheet" href="./v7.css" />
+  <link rel="stylesheet" href="./styles-v7.css" />
+  <link rel="icon" href="./assets/icons/favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" href="./assets/icons/favicon-32x32.png" sizes="32x32">
+  <link rel="icon" type="image/png" href="./assets/icons/favicon-16x16.png" sizes="16x16">
+  <link rel="apple-touch-icon" href="./assets/icons/apple-touch-icon.png">
+  <link rel="manifest" href="./manifest.webmanifest">
   <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script defer src="./config.js"></script>
-  <script defer src="./v7.js"></script>
   <script defer src="./app.js"></script>
+  <script defer src="./js/core.js"></script>
+  <script defer src="./js/auth.js"></script>
+  <script defer src="./js/timetable.js"></script>
+  <script defer src="./js/attendance.js"></script>
+  <script defer src="./js/exams.js"></script>
+  <script defer src="./js/calendar.js"></script>
+  <script defer src="./js/notifications.js"></script>
+  <script defer src="./js/forms.js"></script>
+  <script defer src="./js/polls.js"></script>
+  <script defer src="./js/extracurricular.js"></script>
+  <script defer src="./js/appointments.js"></script>
+  <script defer src="./js/behavior.js"></script>
+  <script defer src="./js/search.js"></script>
+  <script defer src="./js/dashboard.js"></script>
+  <script defer src="./js/reports.js"></script>
+  <script defer src="./js/student-profile.js"></script>
+  <script defer src="./js/admin.js"></script>
+  <script defer src="./js/start.js"></script>
 </head>
 <body>
   <div id="toast" class="toast" aria-live="polite"></div>
 
   <section id="loginView" class="login-shell">
     <div class="brand-card">
-      <div class="brand-mark"><img src="./assets/icons/logo.svg" alt="" /></div>
+      <img class="v7-brand-logo" src="./assets/icons/logo.svg" alt="نشان سامانه مدرسه">
       <div>
         <p class="eyebrow">به نام خدا</p>
         <h1>سامانه آموزش و پرورش استان اصفهان</h1>
@@ -49,7 +66,7 @@
         <input id="loginPassword" type="password" autocomplete="current-password" required />
       </label>
       <button class="btn btn-primary" type="submit">ورود</button>
-      <p class="hint">امکان «فراموشی رمز» وجود ندارد؛ تغییر یا بازنشانی رمز فقط توسط مدیر مدرسه انجام می‌شود.</p>
+      <p class="hint">در صورت فراموشی رمز با مدیر مدرسه تماس بگیرید. پس از ورود، تغییر رمز از «امنیت حساب» در دسترس است.</p>
       <div id="configWarning" class="alert alert-warning hidden">
         ابتدا مقادیر Supabase را در فایل <code>config.js</code> تنظیم کنید.
       </div>
@@ -59,7 +76,7 @@
   <section id="mfaView" class="mfa-shell hidden" aria-live="polite">
     <div class="mfa-card">
       <div class="mfa-brand">
-        <div class="brand-mark">ا</div>
+        <img class="v7-brand-logo" src="./assets/icons/logo.svg" alt="نشان سامانه مدرسه">
         <div>
           <p class="eyebrow">امنیت حساب مدیر</p>
           <h1>تأیید دومرحله‌ای با Ente Auth</h1>
@@ -103,10 +120,21 @@
     </div>
   </section>
 
+  <section id="passwordView" class="mfa-shell hidden">
+    <form id="passwordForm" class="mfa-card">
+      <img class="v7-brand-logo" src="./assets/icons/logo.svg" alt="نشان سامانه مدرسه">
+      <h1>تغییر رمز اولیه</h1>
+      <p class="muted">برای ادامه استفاده از سامانه، رمز اولیه خود را تغییر دهید.</p>
+      <div id="passwordFields" class="form-grid"></div>
+      <button id="passwordSubmit" class="btn btn-primary full" type="submit">تغییر رمز و ادامه</button>
+      <button id="passwordLogout" class="btn btn-ghost full" type="button">خروج</button>
+    </form>
+  </section>
+
   <section id="appView" class="app-shell hidden">
     <aside class="sidebar">
       <div class="sidebar-brand">
-        <div class="brand-mark small"><img src="./assets/icons/logo.svg" alt="" /></div>
+        <img class="v7-brand-logo small" src="./assets/icons/logo.svg" alt="نشان سامانه مدرسه">
         <div>
           <strong>آموزش و پرورش اصفهان</strong>
           <small id="schoolTitle">سامانه مدرسه</small>
@@ -134,6 +162,14 @@
           <p id="pageSubtitle" class="muted">خلاصه وضعیت سامانه</p>
         </div>
         <div class="topbar-meta">
+          <div class="v7-header-search no-print">
+            <input id="globalSearch" type="search" placeholder="جست‌وجو در سامانه…" aria-label="جست‌وجوی سراسری" autocomplete="off">
+            <div id="searchResults" class="v7-search-results hidden"></div>
+          </div>
+          <button id="notificationButton" class="icon-btn v7-bell" type="button" aria-label="اعلان‌ها">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4"/></svg>
+            <span id="notificationCount" class="v7-notification-count hidden"></span>
+          </button>
           <span id="todayText"></span>
           <button id="logoutBtn" class="topbar-logout" type="button" aria-label="خروج از حساب" title="خروج از حساب">
             <svg viewBox="0 0 24 24" aria-hidden="true">

@@ -1,21 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
-  <title id="title">نشان سامانه مدیریت مدرسه</title>
-  <desc id="desc">کتاب باز و سقف مدرسه با نشانه دیجیتال</desc>
-  <defs>
-    <linearGradient id="g" x1="76" y1="54" x2="438" y2="452" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#2563eb"/>
-      <stop offset=".58" stop-color="#0b82b9"/>
-      <stop offset="1" stop-color="#0a9b84"/>
-    </linearGradient>
-    <linearGradient id="p" x1="160" y1="170" x2="356" y2="380" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#ffffff"/>
-      <stop offset="1" stop-color="#e9f7ff"/>
-    </linearGradient>
-  </defs>
-  <rect x="24" y="24" width="464" height="464" rx="116" fill="url(#g)"/>
-  <path d="M128 205 256 116l128 89" fill="none" stroke="#fff" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M142 220c43-11 79-4 114 22v147c-34-26-71-35-114-24V220Zm228 0c-43-11-79-4-114 22v147c34-26 71-35 114-24V220Z" fill="url(#p)" stroke="#fff" stroke-width="15" stroke-linejoin="round"/>
-  <path d="M256 242v147" stroke="#9bd9ec" stroke-width="10" stroke-linecap="round"/>
-  <circle cx="399" cy="129" r="37" fill="#fff"/>
-  <path d="M399 107v44M377 129h44" stroke="#1681c3" stroke-width="11" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="نشان کتاب و مدرسه">
+  <rect width="512" height="512" rx="112" fill="#2563eb"/>
+  <path d="M112 209 256 112l144 97" fill="none" stroke="#5eead4" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M144 244c43-10 78-1 112 24 34-25 69-34 112-24v132c-45-8-78 0-112 22-34-22-67-30-112-22Z" fill="#fff"/>
+  <path d="M256 274v105" fill="none" stroke="#2563eb" stroke-width="14" stroke-linecap="round"/>
+  <path d="M175 287c21 0 38 5 52 13m-52 28c21 0 38 5 52 13m58-41c14-8 31-13 52-13m-52 54c14-8 31-13 52-13" fill="none" stroke="#2563eb" stroke-width="12" stroke-linecap="round"/>
 </svg>
