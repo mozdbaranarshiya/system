@@ -81,6 +81,20 @@ const state = {
   profiles:[], grades:[], classes:[], subjects:[], assignments:[], classStudents:[], representatives:[],
   refsLoadedAt:0, refsPromise:null, pageCache:new Map()
 };
+
+const v7Routes=new Map();
+const v7Nav={manager:[],teacher:[],student:[]};
+function registerV7Module(def={}){
+  Object.entries(def.routes||{}).forEach(([name,fn])=>{
+    if(typeof fn==="function")v7Routes.set(name,fn);
+  });
+  for(const role of ["manager","teacher","student"]){
+    const items=def.nav?.[role]||[];
+    items.forEach(item=>{
+      if(Array.isArray(item)&&item.length>=2&&!v7Nav[role].some(x=>x[0]===item[0]))v7Nav[role].push(item);
+    });
+  }
+}
 const externalScripts=new Map();
 function loadExternalScript(src,globalName){
   if(globalName&&window[globalName])return Promise.resolve(window[globalName]);
@@ -386,6 +400,13 @@ async function resetManagerMfa(){
   toast("اتصال Ente Auth حذف شد. در ورود بعدی QR جدید ساخته می‌شود.");
 }
 
+window.SystemV7API={
+  get state(){return state},
+  $,esc,toFaDigits,toEnDigits,faDateTime,
+  toast,errText,invokeFunction,roleBadge,byId,className,subjectName,userName,
+  modal,num,setPage,setLoading,table,cachedPage,clearPageCache,refreshRefs,
+  registerModule:registerV7Module
+};
 document.addEventListener("DOMContentLoaded", init);
 async function init(){
   setupPersianDigits();
@@ -639,7 +660,8 @@ function buildNav(){
     teacher:[["dashboard","داشبورد"],["scores","ثبت نمرات"],["homework","تکالیف"],["groups","گروه‌های کلاسی"],["announcements","اطلاعیه‌ها"],["objections","اعتراضات"],["accountSecurity","امنیت حساب"]],
     student:[...studentMenu,["accountSecurity","امنیت حساب"]]
   };
-  $("#mainNav").innerHTML=menus[state.profile.role].map(([r,t])=>`<button class="nav-btn" data-route="${r}">${t}</button>`).join("");
+  const roleMenu=[...(menus[state.profile.role]||[]),...(v7Nav[state.profile.role]||[])];
+  $("#mainNav").innerHTML=roleMenu.map(([r,t])=>`<button class="nav-btn" data-route="${r}">${t}</button>`).join("");
   $("#mainNav").querySelectorAll("button").forEach(b=>b.onclick=()=>navigate(b.dataset.route));
 }
 async function refreshRefs(force=false){
@@ -701,6 +723,7 @@ async function navigate(route){
     if(route==="excel")return renderExcelImport();
     if(route==="audit")return renderAudit();
     if(route==="accountSecurity")return renderAccountSecurity();
+    if(v7Routes.has(route))return v7Routes.get(route)(window.SystemV7API);
   }catch(e){$("#content").innerHTML=`<div class="alert alert-warning">${esc(errText(e))}</div>`;}
 }
 
