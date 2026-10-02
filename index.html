@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="./styles.css" />
   <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script defer src="./config.js"></script>
+  <script defer src="./js/security.js"></script>
   <script defer src="./app.js"></script>
 </head>
 <body>
@@ -47,6 +48,26 @@
         ابتدا مقادیر Supabase را در فایل <code>config.js</code> تنظیم کنید.
       </div>
     </form>
+  </section>
+
+  <section id="passwordView" class="password-shell hidden" aria-live="polite">
+    <div class="password-card">
+      <div class="password-brand">
+        <div class="brand-mark">ا</div>
+        <div>
+          <p class="eyebrow">امنیت حساب</p>
+          <h1>تغییر رمز اولیه</h1>
+          <p class="muted">برای ادامه استفاده از سامانه، رمز اولیه حساب باید تغییر کند.</p>
+        </div>
+      </div>
+      <div id="forcedPasswordBody"></div>
+      <div class="password-rules">
+        <span>حداقل ۸ کاراکتر</span>
+        <span>متفاوت با کد ملی</span>
+        <span>پس از تغییر، دسترسی کامل حساب فعال می‌شود</span>
+      </div>
+      <button id="forcedPasswordLogout" class="btn btn-ghost full" type="button">خروج از حساب</button>
+    </div>
   </section>
 
   <section id="mfaView" class="mfa-shell hidden" aria-live="polite">
@@ -115,7 +136,7 @@
       <nav id="mainNav"></nav>
       <div class="sidebar-version" aria-label="نسخه برنامه">
         <span>نسخه سامانه</span>
-        <strong>v-6.1.0</strong>
+        <strong>v-7 beta 1</strong>
       </div>
     </aside>
 
