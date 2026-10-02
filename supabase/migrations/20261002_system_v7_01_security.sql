@@ -184,6 +184,7 @@ using(public.is_manager());
 revoke insert,update,delete on public.audit_logs from authenticated;
 grant select on public.audit_logs to authenticated;
 grant select,insert on public.audit_logs to service_role;
+grant usage,select on sequence public.audit_logs_id_seq to service_role;
 
 create or replace function public.audit_record_id(p_row jsonb)
 returns uuid
@@ -302,7 +303,7 @@ begin
     'class_representatives','scores','announcements','objections','school_settings',
     'discipline_scores','student_groups','student_group_members','assignments',
     'assignment_submissions','group_score_fields','group_score_entries',
-    'homework_grades','group_score_archives'
+    'homework_grades','group_score_archives','audit_logs'
   ]
   loop
     if to_regclass('public.'||t) is not null then
