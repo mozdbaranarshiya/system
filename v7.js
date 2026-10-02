@@ -539,7 +539,14 @@ async function renderBehavior(){
   q("#content").innerHTML=card("رویدادها",A.table(["دانش‌آموز","تاریخ","عنوان","نوع","امتیاز","توضیح"],rows.map(function(x){return '<tr><td>'+esc(A.userName(x.student_id))+'</td><td>'+d(x.event_date)+'</td><td>'+esc(x.title)+'</td><td>'+badge(typeLabels[x.event_type],x.event_type==="negative"?"danger":"")+'</td><td>'+fa(x.points)+'</td><td>'+esc(x.description||"-")+'</td></tr>')),add);
   if(q("#addBehavior"))q("#addBehavior").onclick=async function(){
     var cats=await A.state.sb.from("behavior_categories").select("*").eq("active",true).order("title");if(cats.error)return A.toast(err(cats.error),true);
-    var allowed=A.state.profiles.filter(function(p){return p.role==="student"&&(isManager()||A.state.classStudents.some(function(cs){return cs.student_id===p.id&&A.state.assignments.some(function(a){return a.teacher_id===A.state.profile.id&&a.class_id===cs.class_id})}))});
+    var allowed=A.state.profiles.filter(function(p){
+      if(p.role!=="student")return false;
+      if(isManager())return true;
+      return A.state.classStudents.some(function(cs){
+        if(cs.student_id!==p.id)return false;
+        return A.state.assignments.some(function(a){return a.teacher_id===A.state.profile.id&&a.class_id===cs.class_id});
+      });
+    });
     A.modal("ثبت رویداد رفتاری",'<div class="form-grid"><label><span>دانش‌آموز</span><select id="beStudent">'+opt(allowed,function(x){return x.id},function(x){return x.full_name})+'</select></label><label><span>دسته</span><select id="beCat">'+opt(cats.data,function(x){return x.id},function(x){return x.title})+'</select></label><label><span>نوع</span><select id="beType"><option value="positive">مثبت</option><option value="negative">منفی</option><option value="neutral">خنثی</option></select></label><label><span>امتیاز</span><input id="bePoints" inputmode="numeric" value="0"></label><label class="wide"><span>عنوان</span><input id="beTitle"></label><label class="wide"><span>توضیح</span><textarea id="beDesc"></textarea></label></div>',async function(){
       var sid=q("#beStudent").value,cs=A.state.classStudents.find(function(x){return x.student_id===sid});if(!cs)throw new Error("کلاس دانش‌آموز مشخص نیست.");
       var p={student_id:sid,class_id:cs.class_id,event_date:new Date().toISOString().slice(0,10),category_id:q("#beCat").value,event_type:q("#beType").value,title:q("#beTitle").value.trim(),description:q("#beDesc").value.trim()||null,points:Number(en(q("#bePoints").value)||0),recorded_by:A.state.profile.id};
