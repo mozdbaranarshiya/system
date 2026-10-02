@@ -730,6 +730,7 @@ async function navigate(route){
 }
 
 async function renderDashboard(){
+  if(window.SystemV7Dashboard?.render)return window.SystemV7Dashboard.render(window.SystemV7API);
   setPage("داشبورد","نمای کلی سامانه");
   if(state.profile.role==="manager"){
     const teachers=state.profiles.filter(x=>x.role==="teacher").length, students=state.profiles.filter(x=>x.role==="student").length;
