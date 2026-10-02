@@ -34,7 +34,7 @@ async function render(){
     api.toast("همه اعلان‌ها خوانده‌شده علامت‌گذاری شدند.");render();refreshBadge();
   };
 }
-window.addEventListener("system:entered",()=>{ensureBell();refreshBadge();});
+window.addEventListener("system:entered",async()=>{ensureBell();try{await api.state.sb.rpc("refresh_due_notifications")}catch(_){}refreshBadge();});
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)refreshBadge()});
 setInterval(()=>{if(!document.hidden&&api.state.profile)refreshBadge()},60000);
 api.registerModule({nav:{manager:[["notifications","اعلان‌ها"]],teacher:[["notifications","اعلان‌ها"]],student:[["notifications","اعلان‌ها"]]},routes:{notifications:render}});
