@@ -291,8 +291,7 @@ create table if not exists public.form_submissions (
   id uuid primary key default gen_random_uuid(),
   form_id uuid not null references public.forms(id) on delete cascade,
   user_id uuid not null references public.profiles(id) on delete cascade,
-  submitted_at timestamptz not null default now(),
-  unique(form_id,user_id)
+  submitted_at timestamptz not null default now()
 );
 
 create table if not exists public.form_answers (
@@ -616,6 +615,9 @@ create policy v7_submission_insert on public.form_submissions for insert to auth
     select 1 from public.forms f where f.id=form_id and f.active
       and (f.opens_at is null or now()>=f.opens_at) and (f.closes_at is null or now()<=f.closes_at)
       and public.v7_target_visible(f.target_type,f.target_role,f.target_grade_id,f.target_class_id,f.target_user_id)
+      and (not f.one_response or not exists(
+        select 1 from public.form_submissions old where old.form_id=f.id and old.user_id=auth.uid()
+      ))
   )
 );
 drop policy if exists v7_form_answers_read on public.form_answers;
@@ -624,7 +626,11 @@ create policy v7_form_answers_read on public.form_answers for select to authenti
 );
 drop policy if exists v7_form_answers_insert on public.form_answers;
 create policy v7_form_answers_insert on public.form_answers for insert to authenticated with check(
-  public.v7_account_ready() and exists(select 1 from public.form_submissions s where s.id=submission_id and s.user_id=auth.uid())
+  public.v7_account_ready() and exists(
+    select 1 from public.form_submissions s
+    join public.form_fields ff on ff.id=field_id and ff.form_id=s.form_id
+    where s.id=submission_id and s.user_id=auth.uid()
+  )
 );
 
 drop policy if exists v7_polls_read on public.polls;
@@ -792,6 +798,111 @@ begin
     perform public.v7_notify(r.id,p_type,p_title,p_body,p_link,p_entity_type,p_entity_id,p_type||':'||p_entity_id::text||':'||coalesce(p_suffix,'0'));
   end loop;
 end $$;
+
+create or replace function public.v7_form_submission_guard()
+returns trigger language plpgsql security definer set search_path=public
+as $
+declare f public.forms;
+begin
+  select * into f from public.forms where id=new.form_id for update;
+  if not found then raise exception 'FORM_NOT_FOUND'; end if;
+  if f.one_response and exists(
+    select 1 from public.form_submissions where form_id=new.form_id and user_id=new.user_id
+  ) then raise exception 'ALREADY_SUBMITTED'; end if;
+  return new;
+end $;
+drop trigger if exists v7_form_submission_guard on public.form_submissions;
+create trigger v7_form_submission_guard before insert on public.form_submissions
+for each row execute function public.v7_form_submission_guard();
+
+create or replace function public.v7_form_notify_trigger()
+returns trigger language plpgsql security definer set search_path=public
+as $
+begin
+  if new.active then
+    perform public.v7_notify_target(new.target_type,new.target_role,new.target_grade_id,new.target_class_id,new.target_user_id,
+      'form','فرم جدید: '||new.title,new.description,'forms','form',new.id,'created');
+  end if;
+  return new;
+end $;
+drop trigger if exists v7_form_notify on public.forms;
+create trigger v7_form_notify after insert on public.forms for each row execute function public.v7_form_notify_trigger();
+
+create or replace function public.v7_poll_notify_trigger()
+returns trigger language plpgsql security definer set search_path=public
+as $
+begin
+  if new.active then
+    perform public.v7_notify_target(new.target_type,new.target_role,new.target_grade_id,new.target_class_id,new.target_user_id,
+      'poll','نظرسنجی جدید: '||new.title,new.description,'polls','poll',new.id,'created');
+  end if;
+  return new;
+end $;
+drop trigger if exists v7_poll_notify on public.polls;
+create trigger v7_poll_notify after insert on public.polls for each row execute function public.v7_poll_notify_trigger();
+
+create or replace function public.v7_extra_notify_trigger()
+returns trigger language plpgsql security definer set search_path=public
+as $
+begin
+  perform public.v7_notify_target('role','student',null,null,null,
+    'extracurricular','کلاس فوق‌برنامه جدید: '||new.title,new.description,'extracurricular','extracurricular',new.id,'created');
+  return new;
+end $;
+drop trigger if exists v7_extra_notify on public.extracurricular_classes;
+create trigger v7_extra_notify after insert on public.extracurricular_classes for each row execute function public.v7_extra_notify_trigger();
+
+create or replace function public.v7_extra_enrollment_notify_trigger()
+returns trigger language plpgsql security definer set search_path=public
+as $
+declare v_title text;
+begin
+  if tg_op='UPDATE' and old.status is distinct from new.status then
+    select title into v_title from public.extracurricular_classes where id=new.class_id;
+    perform public.v7_notify(new.student_id,'extracurricular','وضعیت فوق‌برنامه: '||coalesce(v_title,'کلاس'),
+      'وضعیت درخواست شما به '||new.status||' تغییر کرد.','extracurricular','extracurricular',new.class_id,
+      'extra:'||new.id::text||':'||new.status);
+  end if;
+  return new;
+end $;
+drop trigger if exists v7_extra_enrollment_notify on public.extracurricular_enrollments;
+create trigger v7_extra_enrollment_notify after update of status on public.extracurricular_enrollments
+for each row execute function public.v7_extra_enrollment_notify_trigger();
+
+create or replace function public.v7_announcement_notify_trigger()
+returns trigger language plpgsql security definer set search_path=public
+as $
+declare r record;
+begin
+  if new.target_type='group' then
+    for r in select student_id as id from public.student_group_members where group_id=new.target_group_id loop
+      perform public.v7_notify(r.id,'announcement','اطلاعیه جدید: '||new.title,new.body,'announcements','announcement',new.id,'announcement:'||new.id::text);
+    end loop;
+  else
+    perform public.v7_notify_target(new.target_type,new.target_role,null,new.target_class_id,new.target_user_id,
+      'announcement','اطلاعیه جدید: '||new.title,new.body,'announcements','announcement',new.id,'created');
+  end if;
+  return new;
+end $;
+drop trigger if exists v7_announcement_notify on public.announcements;
+create trigger v7_announcement_notify after insert on public.announcements for each row execute function public.v7_announcement_notify_trigger();
+
+create or replace function public.v7_submission_result_notify_trigger()
+returns trigger language plpgsql security definer set search_path=public
+as $
+begin
+  if tg_op='UPDATE' and (
+    old.status is distinct from new.status or old.score is distinct from new.score
+  ) then
+    perform public.v7_notify(new.student_id,'assignment_result','نتیجه تکلیف تغییر کرد',
+      coalesce(new.feedback,'وضعیت تکلیف شما به‌روزرسانی شد.'),'homework','assignment_submission',new.id,
+      'submission:'||new.id::text||':'||new.status||':'||coalesce(new.score::text,'-'));
+  end if;
+  return new;
+end $;
+drop trigger if exists v7_submission_result_notify on public.assignment_submissions;
+create trigger v7_submission_result_notify after update on public.assignment_submissions
+for each row execute function public.v7_submission_result_notify_trigger();
 
 create or replace function public.v7_calendar_notify_trigger()
 returns trigger language plpgsql security definer set search_path=public
@@ -997,6 +1108,9 @@ declare p public.polls; total bigint;
 begin
   select * into p from public.polls where id=p_poll;
   if not found then raise exception 'NOT_FOUND'; end if;
+  if not public.is_manager() and not public.v7_target_visible(p.target_type,p.target_role,p.target_grade_id,p.target_class_id,p.target_user_id) then
+    raise exception 'ACCESS_DENIED';
+  end if;
   if not public.is_manager() and not p.show_results then raise exception 'RESULTS_HIDDEN'; end if;
   select count(*) into total from public.poll_votes where poll_id=p_poll;
   return query
@@ -1303,7 +1417,25 @@ begin
     from public.forms f
     where f.title ilike q and (public.is_manager() or (f.active and public.v7_target_visible(f.target_type,f.target_role,f.target_grade_id,f.target_class_id,f.target_user_id)))
     limit 6;
-end $$;
+
+  return query
+    select 'announcement',a.id,a.title,left(a.body,120),'announcements'
+    from public.announcements a
+    where a.title ilike q or a.body ilike q
+    limit 6;
+
+  return query
+    select 'extracurricular',e.id,e.title,coalesce(e.location,''),'extracurricular'
+    from public.extracurricular_classes e
+    where e.title ilike q and (e.active or public.is_manager() or e.teacher_id=auth.uid())
+    limit 6;
+
+  return query
+    select 'poll',p.id,p.title,coalesce(p.description,''),'polls'
+    from public.polls p
+    where p.title ilike q and (public.is_manager() or (p.active and public.v7_target_visible(p.target_type,p.target_role,p.target_grade_id,p.target_class_id,p.target_user_id)))
+    limit 6;
+end $;
 grant execute on function public.global_search(text) to authenticated;
 
 -- Grants for direct browser access. RLS still applies.
