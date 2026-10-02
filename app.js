@@ -31,7 +31,7 @@ function persianizeNode(root){
   });
   if(root.querySelectorAll){
     root.querySelectorAll("input,textarea").forEach(inp=>{
-      if(["password","file","hidden","checkbox","radio"].includes(inp.type))return;
+      if(["password","file","hidden","checkbox","radio","number","date","time","datetime-local"].includes(inp.type))return;
       const next=toFaDigits(inp.value);
       if(next!==inp.value)inp.value=next;
     });
@@ -41,7 +41,7 @@ function setupPersianDigits(){
   document.addEventListener("input",e=>{
     const el=e.target;
     if(!(el instanceof HTMLInputElement||el instanceof HTMLTextAreaElement))return;
-    if(["password","file","hidden","checkbox","radio"].includes(el.type))return;
+    if(["password","file","hidden","checkbox","radio","number","date","time","datetime-local"].includes(el.type))return;
     const pos=el.selectionStart, next=toFaDigits(el.value);
     if(next!==el.value){
       el.value=next;
@@ -135,7 +135,7 @@ async function uploadAssignmentFile(path,file,onProgress=()=>{}){
 }
 async function ensureSheetJS(){
   if(window.XLSX)return window.XLSX;
-  return loadExternalScript("https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js","XLSX");
+  return loadExternalScript("https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js","XLSX");
 }
 
 
@@ -161,8 +161,26 @@ function errText(e){
     NOTHING_ARCHIVED:"هیچ نمره‌ای به بایگانی منتقل نشد.",
     MFA_REQUIRED:"برای عملیات مدیریتی باید کد دومرحله‌ای تأیید شود.",
     MFA_LEVEL_NOT_UPGRADED:"سطح امنیت نشست مدیر به AAL2 ارتقا پیدا نکرد.",
-    MFA_ENROLL_INCOMPLETE:"اطلاعات راه‌اندازی Ente Auth کامل دریافت نشد. دوباره وارد شوید."};
-  return map[m]||m;
+    MFA_ENROLL_INCOMPLETE:"اطلاعات راه‌اندازی Ente Auth کامل دریافت نشد. دوباره وارد شوید.",
+    ACCOUNT_NOT_READY:"برای ادامه، رمز اولیه را تغییر دهید و ورود امن را کامل کنید.",
+    TIMETABLE_CONFLICT:"برای این ساعت برنامه دیگری ثبت شده است.",INVALID_ASSIGNMENT:"کلاس، درس و دبیر با تخصیص‌های مدرسه سازگار نیستند.",
+    INVALID_STUDENT:"دانش‌آموز عضو این کلاس نیست.",INVALID_SESSION:"جلسه انتخاب‌شده با کلاس، درس یا روز سازگار نیست.",
+    INVALID_DATA:"اطلاعات واردشده کامل یا معتبر نیست.",INVALID_OPTIONS:"گزینه‌های انتخاب‌شده معتبر نیستند.",
+    EXAM_NOT_STARTED:"زمان شروع آزمون نرسیده است.",EXAM_EXPIRED:"مهلت شرکت در آزمون پایان یافته است.",
+    EXAM_LOCKED:"آزمون منتشرشده یا شروع‌شده قابل تغییر نیست.",EXAM_SCORE_MISMATCH:"مجموع بارم سؤال‌ها با نمره آزمون سازگار نیست.",
+    INVALID_QUESTION:"سؤال انتخاب‌شده معتبر نیست.",FORM_CLOSED:"مهلت ارسال این فرم باز نیست.",
+    FORM_ALREADY_SUBMITTED:"این فرم قبلاً ارسال شده است.",FIELD_REQUIRED:"فیلدهای الزامی را تکمیل کنید.",
+    INVALID_FIELD:"پاسخ یکی از فیلدها معتبر نیست.",POLL_CLOSED:"مهلت رأی‌گیری باز نیست.",ALREADY_VOTED:"شما قبلاً رأی داده‌اید.",
+    RESULTS_HIDDEN:"نمایش نتایج هنوز فعال نشده است.",POLL_LOCKED:"پس از ثبت رأی، مشخصات نظرسنجی قابل تغییر نیست.",
+    REGISTRATION_CLOSED:"مهلت ثبت‌نام این کلاس باز نیست.",CAPACITY_FULL:"ظرفیت تکمیل شده است.",
+    APPOINTMENT_CONFLICT:"برای این ساعت ملاقات دیگری ثبت شده است.",APPOINTMENT_EXISTS:"این زمان قبلاً رزرو شده است.",
+    SLOT_CLOSED:"این زمان قابل رزرو نیست.",SLOT_LOCKED:"زمان دارای رزرو قابل تغییر نیست.",
+    WRONG_PASSWORD:"رمز فعلی نادرست است.",WEAK_PASSWORD:"رمز جدید باید حداقل ۸ کاراکتر و متفاوت از کد ملی و رمز فعلی باشد.",
+    INVALID_REPORT:"نوع گزارش معتبر نیست.",UNAUTHORIZED:"نشست شما معتبر نیست؛ دوباره وارد شوید."};
+  if(map[m])return map[m];
+  if(e?.code==="23505")return "این مورد قبلاً ثبت شده است.";
+  if(e?.code==="42501")return "شما اجازه انجام این عملیات را ندارید.";
+  return /[آ-ی]/.test(m)&&!/[A-Za-z]/.test(m)?m:"عملیات انجام نشد. اتصال و اطلاعات واردشده را بررسی کنید و دوباره تلاش کنید.";
 }
 async function invokeFunction(name, body){
   const {data,error}=await state.sb.functions.invoke(name,{body});
@@ -186,6 +204,7 @@ function userName(id){return byId(state.profiles,id)?.full_name||"-";}
 function modal(title, body, onSubmit, submitText="ذخیره"){
   $("#modalTitle").textContent=title; $("#modalBody").innerHTML=body; $("#modalSubmit").textContent=submitText;
   $("#modalSubmit").onclick=async()=>{
+    if(!$("#modalForm").reportValidity())return;
     const btn=$("#modalSubmit"), old=btn.textContent;
     btn.disabled=true; btn.textContent="در حال ذخیره…";
     try{await onSubmit(); $("#modal").close();}
@@ -216,7 +235,7 @@ function clearPageCache(prefix=""){
 
 
 function showOnlyView(view){
-  ["#loginView","#mfaView","#appView"].forEach(sel=>$(sel)?.classList.add("hidden"));
+  ["#loginView","#mfaView","#appView","#passwordView"].forEach(sel=>$(sel)?.classList.add("hidden"));
   $(view)?.classList.remove("hidden");
 }
 async function currentMfaLevel(){
@@ -404,18 +423,23 @@ async function login(e){
   e.preventDefault(); if(!configured)return toast("ابتدا config.js را تنظیم کنید.",true);
   const nid=toEnDigits($("#loginNationalId").value.trim()), password=$("#loginPassword").value;
   if(!/^\d{10}$/.test(nid))return toast("کد ملی باید ۱۰ رقم باشد.",true);
-  const {data,error}=await state.sb.auth.signInWithPassword({email:`${nid}@school.local`,password});
-  if(error)return toast("نام کاربری یا رمز عبور نادرست است.",true);
-  state.session=data.session; await enterApp();
+  const btn=$("#loginForm button[type=submit]");btn.disabled=true;
+  try{
+    const {data,error}=await state.sb.auth.signInWithPassword({email:`${nid}@school.local`,password});
+    if(error)return toast("نام کاربری یا رمز عبور نادرست است.",true);
+    state.session=data.session; await enterApp();
+  }catch(error){toast(errText(error),true)}finally{btn.disabled=false;}
 }
 async function logout(){await state.sb.auth.signOut();showLogin();}
 function showLogin(){
+  window.SchoolV7?.cleanup?.();
   state.profile=null; state.refsLoadedAt=0; state.pageCache.clear();
   $("#appView").classList.add("hidden");
   $("#mfaView")?.classList.add("hidden");
+  $("#passwordView")?.classList.add("hidden");
   $("#loginView").classList.remove("hidden");
 }
-function refsStorageKey(){return state.session?.user?.id?`school-refs-v610:${state.session.user.id}`:null;}
+function refsStorageKey(){return state.session?.user?.id?`school-refs-v7:${state.session.user.id}`:null;}
 function applyRefBundle(data){
   if(!data||typeof data!=="object")return false;
   const keys=["profiles","grades","classes","subjects","assignments","classStudents","representatives"];
@@ -472,7 +496,9 @@ async function enterApp(){
     }
   }
 
+  if(window.SchoolV7?.requirePassword())return;
   showOnlyView("#appView");
+  window.SchoolV7?.afterEnter?.();
   $("#userName").textContent=data.full_name;
   $("#avatar").textContent=(data.full_name||"ک").trim().charAt(0);
 
@@ -504,6 +530,7 @@ function buildNav(){
     teacher:[["dashboard","داشبورد"],["scores","ثبت نمرات"],["homework","تکالیف"],["groups","گروه‌های کلاسی"],["announcements","اطلاعیه‌ها"],["objections","اعتراضات"]],
     student:studentMenu
   };
+  menus[state.profile.role].push(...(window.SchoolV7?.menu()||[]));
   $("#mainNav").innerHTML=menus[state.profile.role].map(([r,t])=>`<button class="nav-btn" data-route="${r}">${t}</button>`).join("");
   $("#mainNav").querySelectorAll("button").forEach(b=>b.onclick=()=>navigate(b.dataset.route));
 }
@@ -545,25 +572,28 @@ async function refreshRefs(force=false){
   return state.refsPromise;
 }
 async function navigate(route){
+  try{await window.SchoolV7?.beforeLeave?.();}catch(e){toast(errText(e),true);return;}
+  window.SchoolV7?.leave?.();
   state.route=route; $(".sidebar").classList.remove("open");
   document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.route===route));
   setLoading();
   try{
-    if(route==="dashboard")return renderDashboard();
-    if(route==="users")return renderUsers();
-    if(route==="structure")return renderStructure();
-    if(route==="assignments")return renderAssignments();
-    if(route==="scores")return renderScores();
-    if(route==="announcements")return renderAnnouncements();
-    if(route==="objections")return renderObjections();
-    if(route==="report")return renderReport();
-    if(route==="teachers")return renderTeachers();
-    if(route==="settings")return renderSettings();
-    if(route==="homework")return renderHomework();
-    if(route==="groups")return renderGroups();
-    if(route==="discipline")return renderDiscipline();
-    if(route==="homeworkGrades")return renderManagerHomeworkGrades();
-    if(route==="excel")return renderExcelImport();
+    if(window.SchoolV7?.routes[route])return await window.SchoolV7.routes[route]();
+    if(route==="dashboard")return await renderDashboard();
+    if(route==="users")return await renderUsers();
+    if(route==="structure")return await renderStructure();
+    if(route==="assignments")return await renderAssignments();
+    if(route==="scores")return await renderScores();
+    if(route==="announcements")return await renderAnnouncements();
+    if(route==="objections")return await renderObjections();
+    if(route==="report")return await renderReport();
+    if(route==="teachers")return await renderTeachers();
+    if(route==="settings")return await renderSettings();
+    if(route==="homework")return await renderHomework();
+    if(route==="groups")return await renderGroups();
+    if(route==="discipline")return await renderDiscipline();
+    if(route==="homeworkGrades")return await renderManagerHomeworkGrades();
+    if(route==="excel")return await renderExcelImport();
   }catch(e){$("#content").innerHTML=`<div class="alert alert-warning">${esc(errText(e))}</div>`;}
 }
 
@@ -1878,4 +1908,7 @@ function resolveObjection(id,approve,score=null){
     },"ثبت رد اعتراض");
   }
 }
+window.SystemCore={state,cfg,$,esc,toast,errText,modal,table,setPage,setLoading,faRole,faStatus,faDateTime,
+  toEnDigits,toFaDigits,className,subjectName,userName,byId,ensureSheetJS,invokeFunction,
+  refreshRefs,navigate,enterApp,showOnlyView,logout,renderDashboard,renderSettings,studentObjectionModal,init};
 })();
