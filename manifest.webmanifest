@@ -1,0 +1,26 @@
+{
+  "name": "سامانه آموزش و پرورش استان اصفهان",
+  "short_name": "سامانه مدرسه",
+  "description": "سامانه یکپارچه مدیریت آموزش، ارزیابی، حضور و غیاب، آزمون، تکلیف و ارتباطات مدرسه",
+  "lang": "fa",
+  "dir": "rtl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "theme_color": "#0B5EA8",
+  "background_color": "#F2F6F7",
+  "icons": [
+    {
+      "src": "./assets/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./assets/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
