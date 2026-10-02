@@ -404,7 +404,7 @@ window.SystemV7API={
   get state(){return state},
   $,esc,toFaDigits,toEnDigits,faDateTime,
   toast,errText,invokeFunction,roleBadge,byId,className,subjectName,userName,
-  modal,num,setPage,setLoading,table,cachedPage,clearPageCache,refreshRefs,
+  modal,num,setPage,setLoading,table,cachedPage,clearPageCache,refreshRefs,navigate,
   registerModule:registerV7Module
 };
 document.addEventListener("DOMContentLoaded", init);
@@ -637,6 +637,7 @@ async function enterApp(){
     setRoleLabel();
     buildNav();
     navigate("dashboard");
+    window.dispatchEvent(new CustomEvent("system:entered"));
     refreshRefs(true).then(()=>{
       setRoleLabel();
       buildNav();
@@ -648,6 +649,7 @@ async function enterApp(){
   setRoleLabel();
   buildNav();
   navigate("dashboard");
+  window.dispatchEvent(new CustomEvent("system:entered"));
 }
 function buildNav(){
   const studentMenu=[
