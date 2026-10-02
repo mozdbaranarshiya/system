@@ -98,14 +98,14 @@ create table if not exists public.attendance_records (
   note text,
   recorded_by uuid not null references public.profiles(id),
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  session_key text generated always as (
+    coalesce(schedule_entry_id::text,'-') || ':' || coalesce(subject_id::text,'-')
+  ) stored,
+  unique(student_id,class_id,attendance_date,session_key)
 );
 create unique index if not exists attendance_unique_session
-on public.attendance_records(
-  student_id,class_id,attendance_date,
-  coalesce(schedule_entry_id,'00000000-0000-0000-0000-000000000000'::uuid),
-  coalesce(subject_id,'00000000-0000-0000-0000-000000000000'::uuid)
-);
+on public.attendance_records(student_id,class_id,attendance_date,session_key);
 create index if not exists attendance_student_date_idx on public.attendance_records(student_id,attendance_date desc);
 create index if not exists attendance_class_date_idx on public.attendance_records(class_id,attendance_date desc);
 
@@ -1092,10 +1092,16 @@ create or replace function public.submit_exam_attempt(p_attempt uuid)
 returns numeric
 language plpgsql security definer set search_path=public
 as $$
-declare a public.exam_attempts; auto_total numeric:=0;
+declare a public.exam_attempts; e public.exams; auto_total numeric:=0; deadline timestamptz;
 begin
   select * into a from public.exam_attempts where id=p_attempt and student_id=auth.uid();
   if not found or a.status<>'in_progress' then raise exception 'EXAM_CLOSED'; end if;
+  select * into e from public.exams where id=a.exam_id;
+  deadline:=least(e.end_at,a.started_at + make_interval(mins=>e.duration_minutes));
+  if now()>deadline then
+    update public.exam_attempts set status='expired',submitted_at=coalesce(submitted_at,now()) where id=p_attempt;
+    raise exception 'EXAM_ENDED';
+  end if;
   select coalesce(sum(eq.score),0) into auto_total
   from public.exam_answers ans
   join public.exam_questions eq on eq.exam_id=a.exam_id and eq.question_id=ans.question_id
@@ -1143,36 +1149,39 @@ as $$
 begin
   if not public.v7_account_ready() then raise exception 'ACCESS_DENIED'; end if;
   return query
-  select 'event:'||c.id::text,c.title,c.start_at,c.end_at,c.event_type,'calendar'
-  from public.calendar_events c
-  where c.start_at between p_from and p_to
-    and public.v7_target_visible(c.target_type,c.target_role,c.target_grade_id,c.target_class_id,c.target_user_id)
-  union all
-  select 'assignment:'||a.id::text,'تکلیف: '||a.title,a.due_at,a.due_at,'assignment','homework'
-  from public.assignments a
-  where a.due_at between p_from and p_to and (
-    public.is_manager() or a.teacher_id=auth.uid() or public.student_can_access_assignment(a.id)
-  )
-  union all
-  select 'exam:'||e.id::text,'آزمون: '||e.title,e.start_at,e.end_at,'exam','exams'
-  from public.exams e
-  where e.start_at between p_from and p_to and (
-    public.is_manager() or e.teacher_id=auth.uid() or (e.published and public.student_in_class(e.class_id))
-  )
-  union all
-  select 'appointment:'||a.id::text,'ملاقات: '||a.subject,s.starts_at,s.ends_at,'appointment','appointments'
-  from public.appointments a join public.appointment_slots s on s.id=a.slot_id
-  where a.status='approved' and s.starts_at between p_from and p_to
-    and (public.is_manager() or a.requester_id=auth.uid() or s.staff_id=auth.uid())
-  union all
-  select 'extra:'||x.id::text,'فوق‌برنامه: '||c.title,x.starts_at,x.ends_at,'extracurricular','extracurricular'
-  from public.extracurricular_sessions x join public.extracurricular_classes c on c.id=x.class_id
-  where x.starts_at between p_from and p_to and (
-    public.is_manager() or c.teacher_id=auth.uid() or exists(
-      select 1 from public.extracurricular_enrollments ee where ee.class_id=c.id and ee.student_id=auth.uid() and ee.status='approved'
+  select z.id,z.title,z.start_at,z.end_at,z.event_type,z.route
+  from (
+    select 'event:'||c.id::text as id,c.title,c.start_at,c.end_at,c.event_type,'calendar'::text as route
+    from public.calendar_events c
+    where c.start_at between p_from and p_to
+      and public.v7_target_visible(c.target_type,c.target_role,c.target_grade_id,c.target_class_id,c.target_user_id)
+    union all
+    select 'assignment:'||a.id::text,'تکلیف: '||a.title,a.due_at,a.due_at,'assignment','homework'
+    from public.assignments a
+    where a.due_at between p_from and p_to and (
+      public.is_manager() or a.teacher_id=auth.uid() or public.student_can_access_assignment(a.id)
     )
-  )
-  order by start_at;
+    union all
+    select 'exam:'||e.id::text,'آزمون: '||e.title,e.start_at,e.end_at,'exam','exams'
+    from public.exams e
+    where e.start_at between p_from and p_to and (
+      public.is_manager() or e.teacher_id=auth.uid() or (e.published and public.student_in_class(e.class_id))
+    )
+    union all
+    select 'appointment:'||a.id::text,'ملاقات: '||a.subject,s.starts_at,s.ends_at,'appointment','appointments'
+    from public.appointments a join public.appointment_slots s on s.id=a.slot_id
+    where a.status='approved' and s.starts_at between p_from and p_to
+      and (public.is_manager() or a.requester_id=auth.uid() or s.staff_id=auth.uid())
+    union all
+    select 'extra:'||x.id::text,'فوق‌برنامه: '||c.title,x.starts_at,x.ends_at,'extracurricular','extracurricular'
+    from public.extracurricular_sessions x join public.extracurricular_classes c on c.id=x.class_id
+    where x.starts_at between p_from and p_to and (
+      public.is_manager() or c.teacher_id=auth.uid() or exists(
+        select 1 from public.extracurricular_enrollments ee where ee.class_id=c.id and ee.student_id=auth.uid() and ee.status='approved'
+      )
+    )
+  ) z
+  order by z.start_at;
 end $$;
 grant execute on function public.get_calendar_feed(timestamptz,timestamptz) to authenticated;
 
