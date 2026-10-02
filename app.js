@@ -161,7 +161,36 @@ function errText(e){
     NOTHING_ARCHIVED:"هیچ نمره‌ای به بایگانی منتقل نشد.",
     MFA_REQUIRED:"برای عملیات مدیریتی باید کد دومرحله‌ای تأیید شود.",
     MFA_LEVEL_NOT_UPGRADED:"سطح امنیت نشست مدیر به AAL2 ارتقا پیدا نکرد.",
-    MFA_ENROLL_INCOMPLETE:"اطلاعات راه‌اندازی Ente Auth کامل دریافت نشد. دوباره وارد شوید."};
+    MFA_ENROLL_INCOMPLETE:"اطلاعات راه‌اندازی Ente Auth کامل دریافت نشد. دوباره وارد شوید.",
+    ACCESS_DENIED:"شما اجازه انجام این عملیات را ندارید.",
+    INVALID_ATTENDANCE_STATUS:"وضعیت حضور و غیاب معتبر نیست.",
+    STUDENT_NOT_IN_CLASS:"این دانش‌آموز عضو کلاس انتخاب‌شده نیست.",
+    SCHEDULE_NOT_FOUND:"جلسه برنامه هفتگی پیدا نشد.",
+    EXAM_NOT_AVAILABLE:"این آزمون در دسترس نیست.",
+    EXAM_NOT_STARTED:"زمان شروع آزمون هنوز نرسیده است.",
+    EXAM_ENDED:"مهلت شرکت در آزمون پایان یافته است.",
+    EXAM_TIME_FINISHED:"زمان آزمون شما به پایان رسیده است.",
+    EXAM_ALREADY_SUBMITTED:"این آزمون قبلاً ارسال شده است.",
+    EXAM_ATTEMPT_INVALID:"تلاش آزمون معتبر نیست.",
+    FORM_NOT_ACTIVE:"این فرم فعال نیست.",
+    FORM_NOT_OPEN:"زمان پاسخ‌گویی به این فرم هنوز شروع نشده است.",
+    FORM_CLOSED:"مهلت ارسال این فرم پایان یافته است.",
+    FORM_ALREADY_SUBMITTED:"این فرم قبلاً ارسال شده است.",
+    FORM_REQUIRED_FIELD_MISSING:"لطفاً همه فیلدهای الزامی فرم را تکمیل کنید.",
+    POLL_NOT_STARTED:"نظرسنجی هنوز شروع نشده است.",
+    POLL_ENDED:"مهلت شرکت در نظرسنجی پایان یافته است.",
+    POLL_ALREADY_VOTED:"شما قبلاً در این نظرسنجی رأی داده‌اید.",
+    POLL_RESULTS_HIDDEN:"نتیجه این نظرسنجی هنوز قابل مشاهده نیست.",
+    CLASS_FULL:"ظرفیت این کلاس تکمیل شده است.",
+    ALREADY_REGISTERED:"شما قبلاً برای این کلاس ثبت‌نام کرده‌اید.",
+    REGISTRATION_NOT_STARTED:"ثبت‌نام این کلاس هنوز شروع نشده است.",
+    REGISTRATION_ENDED:"مهلت ثبت‌نام این کلاس پایان یافته است.",
+    APPOINTMENT_SLOT_CONFLICT:"برای این ساعت برنامه ملاقات دیگری ثبت شده است.",
+    APPOINTMENT_FULL:"ظرفیت این زمان ملاقات تکمیل شده است.",
+    APPOINTMENT_ALREADY_REQUESTED:"برای این زمان قبلاً درخواست ملاقات ثبت کرده‌اید.",
+    APPOINTMENT_SLOT_EXPIRED:"این زمان ملاقات گذشته است.",
+    APPOINTMENT_SLOT_UNAVAILABLE:"این زمان برای رزرو در دسترس نیست.",
+    REPORT_TYPE_INVALID:"نوع گزارش انتخاب‌شده معتبر نیست."};
   return map[m]||m;
 }
 async function invokeFunction(name, body){
@@ -472,6 +501,11 @@ async function enterApp(){
     }
   }
 
+  if(window.SchoolV8?.beforeEnter){
+    const canContinue=await window.SchoolV8.beforeEnter(data);
+    if(canContinue===false)return;
+  }
+
   showOnlyView("#appView");
   $("#userName").textContent=data.full_name;
   $("#avatar").textContent=(data.full_name||"ک").trim().charAt(0);
@@ -495,13 +529,34 @@ async function enterApp(){
 }
 function buildNav(){
   const studentMenu=[
-    ["dashboard","داشبورد"],["report","کارنامه من"],["homework","تکالیف"],
-    ["groups","گروه من"],["announcements","اطلاعیه‌ها"],["teachers","معلمان دروس"],["objections","اعتراضات من"]
+    ["dashboard","داشبورد"],["timetable","برنامه هفتگی"],["attendance","حضور و غیاب من"],
+    ["report","کارنامه من"],["studentProfile","پرونده من"],["homework","تکالیف"],["exams","آزمون‌ها"],
+    ["calendar","تقویم آموزشی"],["forms","فرم‌ها"],["polls","نظرسنجی‌ها"],
+    ["extracurricular","فوق‌برنامه"],["appointments","ملاقات"],["groups","گروه من"],
+    ["announcements","اطلاعیه‌ها"],["teachers","معلمان دروس"],["objections","اعتراضات من"],
+    ["accountSecurity","امنیت حساب"]
   ];
-  if(state.representatives.some(r=>r.student_id===state.profile.id)) studentMenu.splice(4,0,["discipline","ثبت انضباط"]);
+  if(state.representatives.some(r=>r.student_id===state.profile.id)) studentMenu.splice(13,0,["discipline","ثبت انضباط"]);
+
   const menus={
-    manager:[["dashboard","داشبورد"],["users","کاربران"],["structure","پایه، کلاس و درس"],["assignments","تخصیص‌ها و نماینده"],["scores","ثبت و قفل نمرات"],["homeworkGrades","نمرات تکالیف"],["excel","ورود از اکسل"],["announcements","اطلاعیه‌ها"],["settings","تنظیمات سامانه"]],
-    teacher:[["dashboard","داشبورد"],["scores","ثبت نمرات"],["homework","تکالیف"],["groups","گروه‌های کلاسی"],["announcements","اطلاعیه‌ها"],["objections","اعتراضات"]],
+    manager:[
+      ["dashboard","داشبورد"],["users","کاربران"],["structure","پایه، کلاس و درس"],
+      ["assignments","تخصیص‌ها و نماینده"],["timetable","برنامه هفتگی"],["attendance","حضور و غیاب"],
+      ["scores","ثبت و قفل نمرات"],["homeworkGrades","نمرات تکالیف"],["exams","آزمون‌ها"],
+      ["calendar","تقویم آموزشی"],["notifications","مرکز اعلان‌ها"],["studentProfile","پرونده دانش‌آموز"],
+      ["behavior","رفتار و تشویق"],["forms","فرم‌ساز"],["polls","نظرسنجی‌ها"],
+      ["extracurricular","فوق‌برنامه"],["appointments","ملاقات‌ها"],["reports","گزارش‌ها"],
+      ["audit","Audit Log"],["excel","ورود از اکسل"],["announcements","اطلاعیه‌ها"],
+      ["settings","تنظیمات سامانه"],["accountSecurity","امنیت حساب"]
+    ],
+    teacher:[
+      ["dashboard","داشبورد"],["timetable","برنامه هفتگی من"],["attendance","حضور و غیاب"],
+      ["scores","ثبت نمرات"],["homework","تکالیف"],["exams","آزمون‌ها"],["calendar","تقویم آموزشی"],
+      ["notifications","اعلان‌ها"],["studentProfile","پرونده دانش‌آموز"],["behavior","رفتار و تشویق"],
+      ["forms","فرم‌ها"],["polls","نظرسنجی‌ها"],["extracurricular","فوق‌برنامه"],
+      ["appointments","ملاقات‌ها"],["reports","گزارش‌ها"],["groups","گروه‌های کلاسی"],
+      ["announcements","اطلاعیه‌ها"],["objections","اعتراضات"],["accountSecurity","امنیت حساب"]
+    ],
     student:studentMenu
   };
   $("#mainNav").innerHTML=menus[state.profile.role].map(([r,t])=>`<button class="nav-btn" data-route="${r}">${t}</button>`).join("");
@@ -549,6 +604,8 @@ async function navigate(route){
   document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.route===route));
   setLoading();
   try{
+    const v8Route=window.SchoolV8?.routes?.[route];
+    if(typeof v8Route==="function")return await v8Route();
     if(route==="dashboard")return renderDashboard();
     if(route==="users")return renderUsers();
     if(route==="structure")return renderStructure();
@@ -1878,4 +1935,13 @@ function resolveObjection(id,approve,score=null){
     },"ثبت رد اعتراض");
   }
 }
+
+window.SchoolApp={
+  get state(){return state;},
+  $,esc,toFaDigits,toEnDigits,faDateTime,faRole,
+  toast,errText,modal,num,setPage,setLoading,table,
+  byId,className,subjectName,userName,roleBadge,
+  refreshRefs,navigate,clearPageCache,cachedPage,ensureSheetJS,
+  invokeFunction,showOnlyView
+};
 })();
