@@ -502,6 +502,49 @@ async function renderAccountSecurity(){
   };
 }
 
+
+function auditJson(value){
+  if(value==null)return "-";
+  try{
+    const text=JSON.stringify(value,null,2);
+    return `<details><summary>مشاهده</summary><pre class="audit-json">${esc(text.length>1400?text.slice(0,1400)+"\\n…":text)}</pre></details>`;
+  }catch(_){return "-"}
+}
+
+async function renderAudit(page=0){
+  setPage("تاریخچه تغییرات","ثبت غیرقابل‌ویرایش تغییرات حساس سامانه");
+  const pageSize=50;
+  const {data,error,count}=await state.sb.from("audit_logs")
+    .select("id,user_id,action,table_name,record_id,old_data,new_data,created_at",{count:"exact"})
+    .order("created_at",{ascending:false})
+    .range(page*pageSize,page*pageSize+pageSize-1);
+  if(error)throw error;
+
+  const rows=(data||[]).map(log=>`<tr>
+    <td>${faDateTime(log.created_at)}</td>
+    <td>${esc(userName(log.user_id))}</td>
+    <td><span class="badge">${esc(v7Security?.actionLabel(log.action)||log.action)}</span></td>
+    <td>${esc(v7Security?.tableLabel(log.table_name)||log.table_name)}</td>
+    <td>${log.record_id?`<code>${esc(log.record_id.slice(0,8))}…</code>`:"-"}</td>
+    <td>${auditJson(log.old_data)}</td>
+    <td>${auditJson(log.new_data)}</td>
+  </tr>`).join("");
+
+  const pages=Math.max(1,Math.ceil((count||0)/pageSize));
+  $("#content").innerHTML=`<div class="card">
+    <div class="panel-head"><div><h3>Audit Log</h3><p class="muted">کاربران عادی امکان ایجاد، تغییر یا حذف این سوابق را ندارند.</p></div><span class="badge">${toFaDigits(count||0)} رویداد</span></div><br>
+    <div class="table-wrap"><table><thead><tr><th>زمان</th><th>کاربر</th><th>عملیات</th><th>بخش</th><th>شناسه</th><th>قبل</th><th>بعد</th></tr></thead><tbody>${rows||'<tr><td colspan="7" class="empty">تغییری ثبت نشده است.</td></tr>'}</tbody></table></div>
+    <div class="audit-pagination">
+      <button class="btn btn-ghost" id="auditPrev" ${page<=0?"disabled":""}>صفحه قبل</button>
+      <span class="badge">صفحه ${toFaDigits(page+1)} از ${toFaDigits(pages)}</span>
+      <button class="btn btn-ghost" id="auditNext" ${page+1>=pages?"disabled":""}>صفحه بعد</button>
+    </div>
+  </div>`;
+
+  $("#auditPrev").onclick=()=>page>0&&renderAudit(page-1);
+  $("#auditNext").onclick=()=>page+1<pages&&renderAudit(page+1);
+}
+
 function refsStorageKey(){return state.session?.user?.id?`school-refs-v610:${state.session.user.id}`:null;}
 function applyRefBundle(data){
   if(!data||typeof data!=="object")return false;
@@ -592,9 +635,9 @@ function buildNav(){
   ];
   if(state.representatives.some(r=>r.student_id===state.profile.id)) studentMenu.splice(4,0,["discipline","ثبت انضباط"]);
   const menus={
-    manager:[["dashboard","داشبورد"],["users","کاربران"],["structure","پایه، کلاس و درس"],["assignments","تخصیص‌ها و نماینده"],["scores","ثبت و قفل نمرات"],["homeworkGrades","نمرات تکالیف"],["excel","ورود از اکسل"],["announcements","اطلاعیه‌ها"],["settings","تنظیمات سامانه"]],
-    teacher:[["dashboard","داشبورد"],["scores","ثبت نمرات"],["homework","تکالیف"],["groups","گروه‌های کلاسی"],["announcements","اطلاعیه‌ها"],["objections","اعتراضات"]],
-    student:studentMenu
+    manager:[["dashboard","داشبورد"],["users","کاربران"],["structure","پایه، کلاس و درس"],["assignments","تخصیص‌ها و نماینده"],["scores","ثبت و قفل نمرات"],["homeworkGrades","نمرات تکالیف"],["excel","ورود از اکسل"],["announcements","اطلاعیه‌ها"],["audit","تاریخچه تغییرات"],["settings","تنظیمات سامانه"],["accountSecurity","امنیت حساب"]],
+    teacher:[["dashboard","داشبورد"],["scores","ثبت نمرات"],["homework","تکالیف"],["groups","گروه‌های کلاسی"],["announcements","اطلاعیه‌ها"],["objections","اعتراضات"],["accountSecurity","امنیت حساب"]],
+    student:[...studentMenu,["accountSecurity","امنیت حساب"]]
   };
   $("#mainNav").innerHTML=menus[state.profile.role].map(([r,t])=>`<button class="nav-btn" data-route="${r}">${t}</button>`).join("");
   $("#mainNav").querySelectorAll("button").forEach(b=>b.onclick=()=>navigate(b.dataset.route));
@@ -656,6 +699,8 @@ async function navigate(route){
     if(route==="discipline")return renderDiscipline();
     if(route==="homeworkGrades")return renderManagerHomeworkGrades();
     if(route==="excel")return renderExcelImport();
+    if(route==="audit")return renderAudit();
+    if(route==="accountSecurity")return renderAccountSecurity();
   }catch(e){$("#content").innerHTML=`<div class="alert alert-warning">${esc(errText(e))}</div>`;}
 }
 
