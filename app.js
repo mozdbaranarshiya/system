@@ -515,6 +515,7 @@ async function enterApp(){
     setRoleLabel();
     buildNav();
     navigate("dashboard");
+    window.dispatchEvent(new CustomEvent("school:ready",{detail:{role:data.role,userId:data.id}}));
     refreshRefs(true).then(()=>{
       setRoleLabel();
       buildNav();
@@ -526,6 +527,7 @@ async function enterApp(){
   setRoleLabel();
   buildNav();
   navigate("dashboard");
+  window.dispatchEvent(new CustomEvent("school:ready",{detail:{role:data.role,userId:data.id}}));
 }
 function buildNav(){
   const studentMenu=[
