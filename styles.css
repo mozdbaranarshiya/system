@@ -318,6 +318,8 @@ code{
 .nav-btn[data-route="discipline"]::before{content:"★"}
 .nav-btn[data-route="homeworkGrades"]::before{content:"∑"}
 .nav-btn[data-route="excel"]::before{content:"X";font-size:.63rem}
+.nav-btn[data-route="audit"]::before{content:"⌁"}
+.nav-btn[data-route="accountSecurity"]::before{content:"◆";font-size:.62rem}
 .sidebar-version{
   margin-top:auto;
   display:flex;
