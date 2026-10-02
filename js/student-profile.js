@@ -14,7 +14,7 @@ async function render(studentId=null){
   const list=studentsForRole(),sid=studentId||list[0]?.id;
   if(!sid){$("#content").innerHTML='<div class="card empty">دانش‌آموزی در دسترس نیست.</div>';return}
   const {data,error}=await api.state.sb.rpc("student_profile_bundle",{p_student:sid});if(error)throw error;
-  const p=data.profile||{},scores=data.scores||[],attendance=data.attendance||[],behavior=data.behavior||[],homework=data.homework_grades||[],exams=data.exam_attempts||[];
+  const p=data.profile||{},scores=data.scores||[],attendance=data.attendance||[],behavior=data.behavior||[],homework=data.homework_grades||[],exams=data.exam_attempts||[],objections=data.objections||[],forms=data.forms||[],discipline=data.discipline||[];
   const lesson=scores.filter(s=>s.lesson_score!=null).map(s=>Number(s.lesson_score)),avg=lesson.length?lesson.reduce((a,b)=>a+b,0)/lesson.length:null;
   const abs=attendance.filter(a=>["absent","excused_absence","unexcused_absence"].includes(a.status)).length;
   const unexc=attendance.filter(a=>a.status==="unexcused_absence").length;
@@ -25,16 +25,31 @@ async function render(studentId=null){
   const behRows=behavior.slice(0,100).map(b=>`<tr><td>${api.toFaDigits(b.event_date)}</td><td>${api.esc(b.title)}</td><td>${api.esc(b.category)}</td><td>${b.points>0?"+":""}${b.points}</td></tr>`);
   const hwRows=homework.map(h=>`<tr><td>${h.assignment_id.slice(0,8)}…</td><td>${h.score}</td><td>${api.esc(h.source)}</td></tr>`);
   const exRows=exams.map(e=>`<tr><td>${e.exam_id.slice(0,8)}…</td><td>${api.esc(e.status)}</td><td>${e.total_score}</td><td>${api.faDateTime(e.started_at)}</td></tr>`);
+  const objectionRows=objections.map(o=>`<tr><td>${api.faDateTime(o.created_at)}</td><td>${api.esc(o.component||"-")}</td><td>${api.esc(o.reason||"-")}</td><td><span class="badge">${api.esc(o.status||"-")}</span></td><td>${api.esc(o.response||"-")}</td></tr>`);
+  const formRows=forms.map(s=>`<tr><td>${String(s.form_id||"").slice(0,8)}…</td><td>${api.faDateTime(s.submitted_at)}</td></tr>`);
+  const disciplineRows=discipline.map(d=>`<tr><td>${api.esc(api.className(d.class_id))}</td><td>${d.score}</td><td>${api.esc(d.note||"-")}</td><td>${api.faDateTime(d.updated_at)}</td></tr>`);
+  const subjects=[...new Set(scores.map(s=>s.subject_id))];
+  const reportRows=subjects.map(subjectId=>{
+    const p1=scores.find(s=>s.subject_id===subjectId&&String(s.period||"").includes("اول"))||{};
+    const p2=scores.find(s=>s.subject_id===subjectId&&String(s.period||"").includes("دوم"))||{};
+    const l1=p1.lesson_score==null?null:Number(p1.lesson_score),l2=p2.lesson_score==null?null:Number(p2.lesson_score);
+    const annual=l1!=null&&l2!=null?((l1+l2)/2).toFixed(2):"-";
+    return `<tr><td>${api.esc(api.subjectName(subjectId))}</td><td>${l1==null?"-":l1.toFixed(2)}</td><td>${l2==null?"-":l2.toFixed(2)}</td><td><strong>${annual}</strong></td></tr>`;
+  });
   $("#content").innerHTML=`${selector}<section class="student-profile-head card"><div class="avatar student-profile-avatar">${api.esc((p.full_name||"د").charAt(0))}</div><div><h2>${api.esc(p.full_name||"-")}</h2><p class="muted">کد ملی: ${api.esc(p.national_id||"-")} · ${api.esc((data.classes||[]).map(c=>c.class_title).join("، ")||"-")}</p></div><span class="badge">${p.active?"فعال":"غیرفعال"}</span></section>
   <div class="stats"><div class="stat"><span>معدل نمرات ثبت‌شده</span><b>${avg==null?"-":api.toFaDigits(avg.toFixed(2))}</b></div><div class="stat"><span>کل غیبت</span><b>${api.toFaDigits(abs)}</b></div><div class="stat"><span>غیبت غیرموجه</span><b>${api.toFaDigits(unexc)}</b></div><div class="stat"><span>امتیاز رفتار</span><b>${api.toFaDigits(pos+neg)}</b></div></div>
-  <div class="profile-tabs"><button class="btn btn-primary profile-tab" data-tab="scores">نمرات</button><button class="btn btn-ghost profile-tab" data-tab="attendance">حضور و غیاب</button><button class="btn btn-ghost profile-tab" data-tab="homework">تکالیف</button><button class="btn btn-ghost profile-tab" data-tab="exams">آزمون‌ها</button><button class="btn btn-ghost profile-tab" data-tab="behavior">رفتار و انضباط</button><button class="btn btn-ghost profile-tab" data-tab="extra">فوق‌برنامه</button></div>
+  <div class="profile-tabs"><button class="btn btn-primary profile-tab" data-tab="scores">نمرات</button><button class="btn btn-ghost profile-tab" data-tab="report">کارنامه</button><button class="btn btn-ghost profile-tab" data-tab="attendance">حضور و غیاب</button><button class="btn btn-ghost profile-tab" data-tab="homework">تکالیف</button><button class="btn btn-ghost profile-tab" data-tab="exams">آزمون‌ها</button><button class="btn btn-ghost profile-tab" data-tab="behavior">رفتار</button><button class="btn btn-ghost profile-tab" data-tab="discipline">انضباط</button><button class="btn btn-ghost profile-tab" data-tab="objections">اعتراض‌ها</button><button class="btn btn-ghost profile-tab" data-tab="extra">فوق‌برنامه</button><button class="btn btn-ghost profile-tab" data-tab="forms">فرم‌ها</button></div>
   <div id="profileTabBody">
     <div class="profile-panel" data-panel="scores">${api.table(["درس","نوبت","تکوینی","پایانی","نهایی"],scoreRows,"نمره‌ای ثبت نشده است.")}</div>
+    <div class="profile-panel hidden" data-panel="report">${api.table(["درس","نمره درس نوبت اول","نمره درس نوبت دوم","سالانه"],reportRows,"اطلاعات کارنامه‌ای وجود ندارد.")}</div>
     <div class="profile-panel hidden" data-panel="attendance">${api.table(["تاریخ","درس","وضعیت","دقیقه"],attRows,"سابقه‌ای ثبت نشده است.")}</div>
     <div class="profile-panel hidden" data-panel="homework">${api.table(["تکلیف","نمره","منبع"],hwRows,"نمره تکلیفی وجود ندارد.")}</div>
     <div class="profile-panel hidden" data-panel="exams">${api.table(["آزمون","وضعیت","نمره","شروع"],exRows,"آزمونی ثبت نشده است.")}</div>
     <div class="profile-panel hidden" data-panel="behavior">${api.table(["تاریخ","عنوان","دسته","امتیاز"],behRows,"رویداد رفتاری وجود ندارد.")}</div>
+    <div class="profile-panel hidden" data-panel="discipline">${api.table(["کلاس","نمره","توضیح","به‌روزرسانی"],disciplineRows,"نمره انضباطی وجود ندارد.")}</div>
+    <div class="profile-panel hidden" data-panel="objections">${api.table(["زمان","بخش","علت","وضعیت","پاسخ"],objectionRows,"اعتراضی ثبت نشده است.")}</div>
     <div class="profile-panel hidden" data-panel="extra">${(data.extracurricular||[]).map(x=>`<article class="card"><h4>${api.esc(x.class?.title||"-")}</h4><span class="badge">${api.esc(x.enrollment?.status||"-")}</span></article>`).join("")||'<div class="empty">عضویت فوق‌برنامه‌ای وجود ندارد.</div>'}</div>
+    <div class="profile-panel hidden" data-panel="forms">${api.table(["شناسه فرم","زمان ارسال"],formRows,"فرمی ارسال نشده است.")}</div>
   </div>`;
   if($("#profileStudent"))$("#profileStudent").onchange=e=>render(e.target.value);
   document.querySelectorAll(".profile-tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".profile-tab").forEach(x=>{x.classList.toggle("btn-primary",x===b);x.classList.toggle("btn-ghost",x!==b)});document.querySelectorAll(".profile-panel").forEach(pn=>pn.classList.toggle("hidden",pn.dataset.panel!==b.dataset.tab));});
