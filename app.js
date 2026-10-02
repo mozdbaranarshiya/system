@@ -873,6 +873,14 @@ async function renderReport(){
   const absenceCount=attendanceRows.filter(x=>["absent","excused","unexcused"].includes(x.status)).length;
   const unexcusedCount=attendanceRows.filter(x=>x.status==="unexcused").length;
   const lateCount=attendanceRows.filter(x=>x.status==="late").length;
+  const trendRows=subjects.map(sub=>{
+    const p1=scoreFor(sub.id,"اول")||{},p2=scoreFor(sub.id,"دوم")||{};
+    const v1=p1.lesson_score==null?null:Number(p1.lesson_score),v2=p2.lesson_score==null?null:Number(p2.lesson_score);
+    if(v1==null&&v2==null)return "";
+    const width1=v1==null?0:Math.max(0,Math.min(100,v1/20*100));
+    const width2=v2==null?0:Math.max(0,Math.min(100,v2/20*100));
+    return `<div class="report-trend-row"><span>${esc(sub.title)}</span><div class="report-trend-bars"><i style="width:${width1}%"><b>${v1==null?"-":v1.toFixed(1)}</b></i><i class="term2" style="width:${width2}%"><b>${v2==null?"-":v2.toFixed(1)}</b></i></div></div>`;
+  }).filter(Boolean).join("");
 
   $("#content").innerHTML=`
     <div class="report-actions no-print">
@@ -914,6 +922,7 @@ async function renderReport(){
         <div><small>غیبت غیرموجه</small><strong>${unexcusedCount}</strong></div>
         <div><small>تأخیر</small><strong>${lateCount}</strong></div>
       </div>
+      ${trendRows?`<div class="report-trend"><div class="panel-head"><h3>روند نمرات</h3><div class="pill-row"><span class="badge">نوبت اول</span><span class="badge info">نوبت دوم</span></div></div>${trendRows}</div>`:""}
       <div class="report-signatures"><span>امضای مدیر مدرسه</span><span>امضای ولی دانش‌آموز</span></div>
     </section>`;
 
@@ -1620,7 +1629,7 @@ async function downloadExcelTemplate(){
   add("تخصیص دبیران",[
     {"کد ملی دبیر":"0012345678","پایه":"هفتم","کلاس":"۷/۱","سال تحصیلی":"۱۴۰۵-۱۴۰۶","درس":"ریاضی"}
   ]);
-  XLSX.writeFile(wb,"نمونه-ورود-اطلاعات-مدرسه-v6.1.0.xlsx",{compression:true});
+  XLSX.writeFile(wb,"نمونه-ورود-اطلاعات-مدرسه-v7.0.0.xlsx",{compression:true});
 }
 function normalizeExcelText(v){return String(v??"").trim();}
 function excelValue(row,...keys){
