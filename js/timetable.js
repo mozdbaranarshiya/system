@@ -2,6 +2,7 @@
 "use strict";
 const api=window.SystemV7API;
 if(!api)return;
+const $=api.$;
 const days=["شنبه","یکشنبه","دوشنبه","سه‌شنبه","چهارشنبه","پنجشنبه"];
 
 function friendly(e){
