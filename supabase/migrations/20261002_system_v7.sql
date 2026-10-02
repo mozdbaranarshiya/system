@@ -801,7 +801,7 @@ end $$;
 
 create or replace function public.v7_form_submission_guard()
 returns trigger language plpgsql security definer set search_path=public
-as $
+as $$
 declare f public.forms;
 begin
   select * into f from public.forms where id=new.form_id for update;
@@ -810,51 +810,51 @@ begin
     select 1 from public.form_submissions where form_id=new.form_id and user_id=new.user_id
   ) then raise exception 'ALREADY_SUBMITTED'; end if;
   return new;
-end $;
+end $$;
 drop trigger if exists v7_form_submission_guard on public.form_submissions;
 create trigger v7_form_submission_guard before insert on public.form_submissions
 for each row execute function public.v7_form_submission_guard();
 
 create or replace function public.v7_form_notify_trigger()
 returns trigger language plpgsql security definer set search_path=public
-as $
+as $$
 begin
   if new.active then
     perform public.v7_notify_target(new.target_type,new.target_role,new.target_grade_id,new.target_class_id,new.target_user_id,
       'form','فرم جدید: '||new.title,new.description,'forms','form',new.id,'created');
   end if;
   return new;
-end $;
+end $$;
 drop trigger if exists v7_form_notify on public.forms;
 create trigger v7_form_notify after insert on public.forms for each row execute function public.v7_form_notify_trigger();
 
 create or replace function public.v7_poll_notify_trigger()
 returns trigger language plpgsql security definer set search_path=public
-as $
+as $$
 begin
   if new.active then
     perform public.v7_notify_target(new.target_type,new.target_role,new.target_grade_id,new.target_class_id,new.target_user_id,
       'poll','نظرسنجی جدید: '||new.title,new.description,'polls','poll',new.id,'created');
   end if;
   return new;
-end $;
+end $$;
 drop trigger if exists v7_poll_notify on public.polls;
 create trigger v7_poll_notify after insert on public.polls for each row execute function public.v7_poll_notify_trigger();
 
 create or replace function public.v7_extra_notify_trigger()
 returns trigger language plpgsql security definer set search_path=public
-as $
+as $$
 begin
   perform public.v7_notify_target('role','student',null,null,null,
     'extracurricular','کلاس فوق‌برنامه جدید: '||new.title,new.description,'extracurricular','extracurricular',new.id,'created');
   return new;
-end $;
+end $$;
 drop trigger if exists v7_extra_notify on public.extracurricular_classes;
 create trigger v7_extra_notify after insert on public.extracurricular_classes for each row execute function public.v7_extra_notify_trigger();
 
 create or replace function public.v7_extra_enrollment_notify_trigger()
 returns trigger language plpgsql security definer set search_path=public
-as $
+as $$
 declare v_title text;
 begin
   if tg_op='UPDATE' and old.status is distinct from new.status then
@@ -864,14 +864,14 @@ begin
       'extra:'||new.id::text||':'||new.status);
   end if;
   return new;
-end $;
+end $$;
 drop trigger if exists v7_extra_enrollment_notify on public.extracurricular_enrollments;
 create trigger v7_extra_enrollment_notify after update of status on public.extracurricular_enrollments
 for each row execute function public.v7_extra_enrollment_notify_trigger();
 
 create or replace function public.v7_announcement_notify_trigger()
 returns trigger language plpgsql security definer set search_path=public
-as $
+as $$
 declare r record;
 begin
   if new.target_type='group' then
@@ -883,13 +883,13 @@ begin
       'announcement','اطلاعیه جدید: '||new.title,new.body,'announcements','announcement',new.id,'created');
   end if;
   return new;
-end $;
+end $$;
 drop trigger if exists v7_announcement_notify on public.announcements;
 create trigger v7_announcement_notify after insert on public.announcements for each row execute function public.v7_announcement_notify_trigger();
 
 create or replace function public.v7_submission_result_notify_trigger()
 returns trigger language plpgsql security definer set search_path=public
-as $
+as $$
 begin
   if tg_op='UPDATE' and (
     old.status is distinct from new.status or old.score is distinct from new.score
@@ -899,7 +899,7 @@ begin
       'submission:'||new.id::text||':'||new.status||':'||coalesce(new.score::text,'-'));
   end if;
   return new;
-end $;
+end $$;
 drop trigger if exists v7_submission_result_notify on public.assignment_submissions;
 create trigger v7_submission_result_notify after update on public.assignment_submissions
 for each row execute function public.v7_submission_result_notify_trigger();
@@ -1435,7 +1435,7 @@ begin
     from public.polls p
     where p.title ilike q and (public.is_manager() or (p.active and public.v7_target_visible(p.target_type,p.target_role,p.target_grade_id,p.target_class_id,p.target_user_id)))
     limit 6;
-end $;
+end $$;
 grant execute on function public.global_search(text) to authenticated;
 
 -- Grants for direct browser access. RLS still applies.
