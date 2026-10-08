@@ -156,6 +156,14 @@ Audit با Trigger و شناسه حساب احرازشده ساخته می‌ش�
 
 نشان اصلی در `assets/icons/logo.svg` است. PNGهای ۱۶، ۳۲، ۱۸۰، ۱۹۲ و ۵۱۲ و ICO در همان پوشه‌اند. Manifest فارسی و RTL، `start_url` و `scope` نسبی دارد و زیرمسیر `/system/` را پشتیبانی می‌کند. نصب‌پذیری روی دستگاه تابع پشتیبانی مرورگر است؛ برنامه اتصال زنده به Supabase دارد و حالت آفلاین پیاده نشده است.
 
+## اتصال حساب به ChatGPT
+
+افزونهٔ OAuth از Login و MFA موجود استفاده می‌کند و فقط داده‌های مجاز حساب را با scopeهای محدود و توکن‌های قابل لغو در اختیار Client می‌گذارد. رمز کاربر و TOTP به ChatGPT ارسال نمی‌شود. راهنمای معماری، migration افزایشی، تنظیمات سرور، ثبت callback دقیق، چرخهٔ توکن و استقرار در [docs/OAUTH.md](docs/OAUTH.md) و schema خواندن API در [docs/chatgpt-openapi.yaml](docs/chatgpt-openapi.yaml) قرار دارند.
+
+برای ارتقای دیتابیس نسخهٔ ۷، migration جدید `supabase/migrations/20261007_oauth_connector.sql` بعد از چهار migration قبلی لازم است. تابع `oauth-connector` باید با تنظیم gateway ذکرشده در مستندات مستقر شود. اجرا و تست محلی، جایگزین استقرار و تنظیم Client واقعی ChatGPT نیست.
+
+تست‌های اختصاصی: `npm run test:oauth`. تست Auth واقعی اختیاری با `npm run test:auth:live` و تست رقابت PostgreSQL با `npm run test:oauth:concurrency` روی سرویس آزمایشی Docker محلی اجرا می‌شوند و به داده یا کلید Supabase تولید دست نمی‌زنند. تست Consent در مرورگر با `npm run test:oauth:browser` اجرا می‌شود.
+
 ## توسعه و تست
 
 Node.js نسخه ۲۴ و npm برای تست کافی است:
@@ -167,12 +175,12 @@ npm test
 npm run test:xlsx
 ```
 
-- `check`: بررسی syntax تمام فایل‌های JavaScript و هر دو Edge Function.
+- `check`: بررسی syntax تمام فایل‌های JavaScript و هر سه Edge Function.
 - تست دیتابیس: اجرای schema قدیمی و چهار Migration روی PostgreSQL آزمایشی PGlite، سپس ۶۳ تست حفظ اطلاعات و RLS/RPC، زمان آزمون، تصحیح، رأی ناشناس، ظرفیت، تداخل، اعلان و سازگاری گروه/تکلیف قدیمی.
 - تست واحد: تبدیل شمسی و سال کبیسه، صفر و نمره ناقص، اندازه آیکون و مسیر Manifest.
 - تست امنیت حساب: ۹ بررسی اعتبارسنجی درخواست با Auth و دیتابیس mock؛ این تست استقرار واقعی Supabase Auth را جایگزین نمی‌کند.
 - تست صفحات: ۷۳ بررسی DOM با دیتابیس واقعی آزمایشی برای سه نقش، تغییر رمز اجباری، فرم و ذخیره پاسخ تشریحی بدون blur.
-- `test:xlsx`: دریافت نسخه ثابت SheetJS از CDN رسمی، ساخت و بازخوانی `.xlsx` واقعی و بررسی RTL، فارسی، نوع عدد و صفر ابتدای کد ملی. فایل آزمایش در `test-results/` قرار می‌گیرد.
+- `test:xlsx`: دریافت SheetJS ثابت ۰.۲۰.۳ از jsDelivr با SHA-256 تطبیق‌یافته با منبع رسمی، بررسی اصالت cache و ساخت و بازخوانی `.xlsx` واقعی؛ RTL، فارسی، نوع عدد و صفر ابتدای کد ملی بررسی می‌شوند. فایل آزمایش در `test-results/` قرار می‌گیرد.
 
 تست‌ها به پروژه Supabase زنده، کاربران واقعی یا service role نیاز ندارند و تغییری در آن‌ها نمی‌دهند.
 
@@ -183,7 +191,7 @@ npx playwright install --with-deps chromium
 npm run test:browser
 ```
 
-این تست از همان دیتابیس آزمایشی و SDK جایگزین استفاده می‌کند و درخواست به Supabase زنده را مسدود می‌کند. تصاویر دسکتاپ/موبایل، PDF و Excel را در `test-results/` می‌سازد. در محیط توسعه فعلی اجرای Chromium با SIGTRAP متوقف شد؛ بنابراین QA بصری، PDF مرورگر و رفتار MFA/Auth روی پروژه مستقر، هنوز تأیید نشده‌اند. تست DOM موفق به‌معنای تأیید بصری نیست. اجرای مرورگر در محیط استاندارد و آزمایش پروژه Supabase آزمایشی، مرحله بررسی پیش از انتشار عمومی است.
+این تست از همان دیتابیس آزمایشی و SDK جایگزین استفاده می‌کند و درخواست به Supabase زنده را مسدود می‌کند. تصاویر دسکتاپ/موبایل، PDF و Excel را در `test-results/` می‌سازد. در محیط ابری، اجرای Chromium سیستم با `CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium` موفق شد: ۵۶ بررسی صفحات، موبایل و خروجی‌ها پاس شدند. این نتیجه تأیید ورود به پروژهٔ تولید یا اتصال Client واقعی ChatGPT نیست؛ آزمون استقرار و callback واقعی پیش از انتشار عمومی لازم است.
 
 ## ساختار فایل‌ها
 
@@ -199,7 +207,7 @@ npm run test:browser
 | `js/forms.js`، `js/polls.js`، `js/extracurricular.js`، `js/appointments.js`، `js/behavior.js`، `js/search.js` | سایر بخش‌های نسخه ۷ |
 | `supabase/schema.sql` | schema پایه؛ بدون تغییر در این ارتقا |
 | `supabase/migrations/20261002_system_v7_*.sql` | چهار Migration افزایشی |
-| `supabase/functions/` | `admin-user` و `account-security` |
+| `supabase/functions/` | `admin-user`، `account-security` و `oauth-connector` |
 | `assets/icons/` و `manifest.webmanifest` | نشان و هویت برنامه |
 | `tests/` و `package*.json` | تست توسعه؛ خارج از مسیر اجرای سایت |
 

@@ -23,6 +23,19 @@ export async function seed(db){
   await db.query("insert into announcements(id,created_by,title,body,target_type,target_class_id) values($1,$2,'اطلاعیه قدیمی','متن قدیمی','class',$3)",[uuid(43),ids.teacher,ids.class]);
 }
 export async function migrate(db){for(const file of (await readdir('supabase/migrations')).filter(f=>f.startsWith('20261002_')).sort())await db.exec(await readFile('supabase/migrations/'+file,'utf8'));}
+// Mock Auth state for PGlite/HTTP fixture suites. Real Auth tests import current
+// sessions/factors from isolated GoTrue instead of using this helper.
+export async function seedOAuthSessions(db){
+ const sessions={};
+ const users=(await db.query('select u.id,p.role from auth.users u join profiles p on p.id=u.id order by u.id')).rows;
+ for(const [index,user] of users.entries()){
+  const session_id=uuid(8000+index),factor_id=user.role==='manager'?uuid(9000+index):null;
+  if(factor_id)await db.query("insert into auth.mfa_factors(id,user_id,status,factor_type) values($1,$2,'verified','totp') on conflict(id) do nothing",[factor_id,user.id]);
+  await db.query('insert into auth.sessions(id,user_id,aal,factor_id) values($1,$2,$3,$4) on conflict(id) do nothing',[session_id,user.id,factor_id?'aal2':'aal1',factor_id]);
+  sessions[user.id]={session_id,factor_id};
+ }
+ return sessions;
+}
 export async function asUser(db,user,fn,aal='aal2'){
   await db.exec('reset role');await db.query("select set_config('request.jwt.claims',$1,false)",[JSON.stringify({sub:user,role:'authenticated',aal})]);await db.exec('set role authenticated');
   try{return await fn();}finally{await db.exec('reset role');await db.query("select set_config('request.jwt.claims','{}',false)");}

@@ -25,12 +25,13 @@ function persianizeNode(root){
   const nodes=[];
   while(walker.nextNode())nodes.push(walker.currentNode);
   nodes.forEach(n=>{
-    if(n.parentElement?.closest("script,style"))return;
+    if(n.parentElement?.closest("script,style,[data-machine-text]"))return;
     const next=toFaDigits(n.nodeValue);
     if(next!==n.nodeValue)n.nodeValue=next;
   });
   if(root.querySelectorAll){
     root.querySelectorAll("input,textarea").forEach(inp=>{
+      if(inp.closest("[data-machine-text]"))return;
       if(["password","file","hidden","checkbox","radio","number","date","time","datetime-local"].includes(inp.type))return;
       const next=toFaDigits(inp.value);
       if(next!==inp.value)inp.value=next;
@@ -57,6 +58,7 @@ function setupPersianDigits(){
     nodes.forEach(n=>{
       if(!n?.isConnected)return;
       if(n.nodeType===Node.TEXT_NODE){
+        if(n.parentElement?.closest("[data-machine-text]"))return;
         const next=toFaDigits(n.nodeValue);
         if(next!==n.nodeValue)n.nodeValue=next;
       }else if(n.nodeType===Node.ELEMENT_NODE){
@@ -235,7 +237,7 @@ function clearPageCache(prefix=""){
 
 
 function showOnlyView(view){
-  ["#loginView","#mfaView","#appView","#passwordView"].forEach(sel=>$(sel)?.classList.add("hidden"));
+  ["#loginView","#mfaView","#appView","#passwordView","#oauthView"].forEach(sel=>$(sel)?.classList.add("hidden"));
   $(view)?.classList.remove("hidden");
 }
 async function currentMfaLevel(){
@@ -243,11 +245,11 @@ async function currentMfaLevel(){
   if(error)throw error;
   return data;
 }
-async function ensureManagerMfa(){
+async function ensureManagerMfa(force=false){
   if(state.profile?.role!=="manager")return true;
 
   const level=await currentMfaLevel();
-  if(level?.currentLevel==="aal2")return true;
+  if(level?.currentLevel==="aal2"&&!force)return true;
 
   const {data:factors,error:factorsError}=await state.sb.auth.mfa.listFactors();
   if(factorsError)throw factorsError;
@@ -337,6 +339,7 @@ function waitForManagerMfa({mode,factorId,qr="",secret="",uri=""}){
       settled=true;
       form.onsubmit=null;
       logoutBtn.onclick=null;
+      clearMfaFields();
       resolve(value);
     };
 
@@ -380,6 +383,13 @@ function waitForManagerMfa({mode,factorId,qr="",secret="",uri=""}){
     };
   });
 }
+function clearMfaFields(){
+  $("#mfaSecret").textContent="";
+  $("#mfaQrImage").removeAttribute("src");
+  $("#openMfaUri").href="#";
+  $("#copyMfaSecret").onclick=null;
+  $("#mfaCode").value="";
+}
 async function resetManagerMfa(){
   if(state.profile?.role!=="manager")return;
   const {data,error}=await state.sb.auth.mfa.listFactors();
@@ -399,7 +409,10 @@ async function resetManagerMfa(){
 }
 
 document.addEventListener("DOMContentLoaded", init);
+let initStarted=false;
 async function init(){
+  if(initStarted)return;
+  initStarted=true;
   setupPersianDigits();
   $("#schoolTitle").textContent=cfg.SCHOOL_NAME||"سامانه مدرسه";
   $("#todayText").textContent=new Intl.DateTimeFormat("fa-IR",{dateStyle:"long"}).format(new Date());
@@ -427,16 +440,19 @@ async function login(e){
   try{
     const {data,error}=await state.sb.auth.signInWithPassword({email:`${nid}@school.local`,password});
     if(error)return toast("نام کاربری یا رمز عبور نادرست است.",true);
+    $("#loginPassword").value="";
     state.session=data.session; await enterApp();
   }catch(error){toast(errText(error),true)}finally{btn.disabled=false;}
 }
 async function logout(){await state.sb.auth.signOut();showLogin();}
 function showLogin(){
   window.SchoolV7?.cleanup?.();
+  clearMfaFields();
   state.profile=null; state.refsLoadedAt=0; state.pageCache.clear();
   $("#appView").classList.add("hidden");
   $("#mfaView")?.classList.add("hidden");
   $("#passwordView")?.classList.add("hidden");
+  $("#oauthView")?.classList.add("hidden");
   $("#loginView").classList.remove("hidden");
 }
 function refsStorageKey(){return state.session?.user?.id?`school-refs-v7:${state.session.user.id}`:null;}
@@ -497,6 +513,7 @@ async function enterApp(){
   }
 
   if(window.SchoolV7?.requirePassword())return;
+  if(await window.SchoolV7?.resumeOAuth?.())return;
   showOnlyView("#appView");
   window.SchoolV7?.afterEnter?.();
   $("#userName").textContent=data.full_name;
@@ -1910,5 +1927,5 @@ function resolveObjection(id,approve,score=null){
 }
 window.SystemCore={state,cfg,$,esc,toast,errText,modal,table,setPage,setLoading,faRole,faStatus,faDateTime,
   toEnDigits,toFaDigits,className,subjectName,userName,byId,ensureSheetJS,invokeFunction,
-  refreshRefs,navigate,enterApp,showOnlyView,logout,renderDashboard,renderSettings,studentObjectionModal,init};
+  refreshRefs,navigate,enterApp,showOnlyView,ensureManagerMfa,logout,renderDashboard,renderSettings,studentObjectionModal,init};
 })();

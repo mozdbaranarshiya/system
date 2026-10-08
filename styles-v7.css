@@ -6,7 +6,9 @@
 .v7-block{display:block;color:var(--muted);font-size:.78rem;margin-top:5px}
 .v7-stats{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
 .v7-dashboard-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.v7-dashboard-grid>.card{min-width:0}
 .v7-narrow{max-width:720px}.v7-narrow form{margin-bottom:20px}
+.oauth-card{width:min(100%,640px)}.oauth-card h1{margin:20px 0 12px}.oauth-account{padding:16px;background:var(--surface-soft);border-radius:var(--radius-sm);margin:20px 0}.oauth-account p{margin:5px 0}.oauth-scope-list{padding-inline-start:24px;line-height:2}.oauth-connection{padding:20px 0;border-bottom:1px solid var(--line)}.oauth-connection:last-child{border:0}.oauth-connection h3{margin:0 0 12px}.oauth-connection p{margin:8px 0}.oauth-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:24px}.oauth-actions .btn{flex:1}
 #passwordView .form-grid{grid-template-columns:1fr;margin-bottom:24px}
 .v7-header-search{position:relative;width:clamp(140px,21vw,300px)}
 .v7-header-search input{width:100%;min-width:0;padding:10px 13px}

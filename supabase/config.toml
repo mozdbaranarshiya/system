@@ -1,0 +1,4 @@
+# OAuth authorization/token endpoints and opaque API tokens are validated by
+# the function itself; the gateway must not require a Supabase JWT for them.
+[functions.oauth-connector]
+verify_jwt = false
