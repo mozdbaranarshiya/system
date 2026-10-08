@@ -112,6 +112,10 @@ Audit جدید فقط Event، شناسهٔ داخلی، Client و Scope را ث�
 
 ابتدا callback دقیق نمایش‌داده‌شده در GPT Builder/Connector را دریافت کنید؛ hostname یا path را حدس نزنید و wildcard ثبت نکنید. سپس مدیر با Session سایت و MFA تازه، درخواست JSON زیر را به `/account/admin/clients` بفرستد. Authorization header همان Session معتبر مدیر است؛ آن را در تاریخچهٔ shell، لاگ یا مخزن قرار ندهید.
 
+مسیر سادهٔ رابط: مدیر وارد سایت شود، «برنامه‌های متصل» را باز کند و در کارت «ثبت برنامه برای اتصال ChatGPT» callback دقیق را وارد کند. فقط scopeهای لازم را انتخاب کند؛ پیش‌فرض صرفاً اطلاعات پایهٔ حساب است. فرم از TOTP تازهٔ همان ورود موجود استفاده می‌کند؛ بدون کد صحیح هیچ درخواست ثبت Client ارسال نمی‌شود و سرور هم مستقلاً Role/Session/MFA را کنترل می‌کند. پس از ثبت، Client ID، Secret یک‌بارنمایش، Authorization URL، Token URL و Scope آمادهٔ کپی در GPT Builder هستند. بستن اطلاعات، خروج یا تغییر صفحه Secret را از رابط پاک می‌کند. نیازی به اشتراک Password یا JWT با شخص دیگر نیست.
+
+برای استفادهٔ مستقیم از این REST API، GPT Actions با Authentication نوع OAuth انتخاب مناسب است. callback به شناسهٔ GPT وابسته است و خود GPT Builder آن را تولید می‌کند؛ انتخاب آدرس دلخواه یا wildcard اتصال واقعی را برقرار نمی‌کند. Client ساخته‌شده در رابط confidential است. اگر GPT Actions شما PKCE نمی‌فرستد، گزینهٔ الزام PKCE را هنگام ثبت Client غیرفعال کنید؛ این تغییر برای Client عمومی مجاز نیست. Scope درج‌شده در GPT Builder باید همان scopeهای انتخاب‌شدهٔ فرم باشد.
+
 ```json
 {
   "name": "ChatGPT",
@@ -157,15 +161,27 @@ DENO_DIR=/tmp/system-deno-cache XDG_CACHE_HOME=/tmp/system-deno-cache npm exec -
 
 | بررسی | نتیجه |
 | --- | --- |
-| `npm test` | Migrationهای قدیمی و تست واحد موفق؛ ۶۳ DB امنیت، ۹ مرز امنیت حساب، ۷۳ UI موجود، ۴۲ DB OAuth، ۱۰۳ مرز HTTP OAuth، ۲۶ HTTP+SQL و ۱۹ تعامل UI OAuth موفق |
+| `npm test` | Migrationهای قدیمی و تست واحد موفق؛ ۶۳ DB امنیت، ۹ مرز امنیت حساب، ۷۳ UI موجود، ۴۲ DB OAuth، ۱۰۳ مرز HTTP OAuth، ۲۶ HTTP+SQL و ۴۲ تعامل UI OAuth موفق؛ ۲۳ مورد جدید ثبت Client مدیر، تغییر حساب پیش از MFA/Consent و حفاظت اطلاعات آن را پوشش می‌دهند |
 | PostgreSQL با اتصال‌های هم‌زمان واقعی | ۲۶ سناریو موفق؛ single-use، rotation/reuse، Consent/Disconnect، تغییر سیاست، انقضا پس از قفل، cleanup و ترتیب قفل MFA بومی |
 | GoTrue واقعی محلی | ۱۸ سناریو موفق؛ رمز صحیح/غلط، ban، Enrollment، OTP صحیح/غلط، Session موجود، ثبت Client مدیر، PKCE، refresh، Disconnect، JWT قدیمی پس از حذف عامل و Logout |
-| Chromium اصلی / OAuth | ۵۶ / ۵ بررسی موفق؛ دسکتاپ، موبایل RTL، Consent، deny، قطع اتصال، PDF و Excel |
+| Chromium اصلی / OAuth | ۵۶ / ۶ بررسی موفق؛ دسکتاپ، موبایل RTL، Consent، deny، قطع اتصال، ثبت Client مدیر پس از MFA، پاک‌کردن Secret، PDF و Excel |
 | Excel با منبع جایگزین | ساخت/بازخوانی فایل واقعی، فارسی، RTL، صفر عددی و کد ملی رشته‌ای موفق |
 | Syntax / Deno type check / whitespace | موفق؛ frontend مرحلهٔ build مستقل ندارد |
 | OpenAPI | YAML و ۴ operation خواندن، scopeها و تمام referenceهای داخلی بررسی شدند |
 
 هیچ migration، deploy، حساب یا Client واقعی روی Supabase تولید/ChatGPT در این اعتبارسنجی ایجاد نشد. تصویر رسمی GoTrue و PostgreSQL محلی با digest ثابت استفاده شدند و منابع Docker متعلق به تست پاک شدند. باقی‌ماندهٔ پذیرش انتشار، آزمون Client واقعی با callback و تنظیمات استقرار است.
+
+### ابزار استقرار در محیط ابری
+
+CLI رسمی Supabase نسخهٔ ثابت `2.120.0` با مسیر state قابل‌نوشتن کار می‌کند؛ `HOME` سیستم تغییر نمی‌کند:
+
+```bash
+SUPABASE_HOME=/tmp/system-supabase-cli-state SUPABASE_TELEMETRY_DISABLED=1 SUPABASE_NO_KEYRING=1 npm exec --cache /tmp/system-npm-cache --yes --package=supabase@2.120.0 -- supabase --version
+```
+
+برای استقرار، `SUPABASE_ACCESS_TOKEN` مدیریتی را فقط در Secrets محیط با مقصد `api.supabase.com` فراهم کنید. public key سایت برای migration یا deploy کافی نیست. دسترسی شبکه به `api.github.com` برای PR، `api.supabase.com` برای مدیریت، دامنهٔ پروژه برای سلامت تابع و دامنهٔ سایت برای کنترل انتشار لازم است. پیش از اعمال migration، schema واقعی مقصد و پیش‌نیازهای v7 و نبود schema OAuth قبلی را بررسی کنید؛ migration یک‌بار اجرا می‌شود. نسخه و help ابزار تأیید شده‌اند؛ داشتن CLI یا انتشار محیط به معنی اجراشدن migration/deploy تولید نیست.
+
+توکن مدیریتی محدودشده باید برای پروژهٔ مقصد مجوزهای `project_admin_read`، `database_read`/`database_write`، `edge_functions_read`/`edge_functions_write` و `edge_functions_secrets_read`/`edge_functions_secrets_write` داشته باشد. این نام‌ها از [OpenAPI رسمی Management API](https://api.supabase.com/api/v1-json) قابل بررسی‌اند. حضور متغیر در محیط کافی نیست؛ پاسخ `403` با نام مجوزِ مفقود، نیازمند اصلاح دسترسی همان توکن است. برای این استقرار مجوز حذف پروژه، مدیریت کلیدهای API یا دسترسی به همهٔ پروژه‌ها لازم نیست.
 
 روی دیتابیس v7 موجود فقط `supabase/migrations/20261007_oauth_connector.sql` را بعد از چهار migration نسخهٔ ۷ اجرا کنید. Schema و migrationهای قدیمی را دوباره اجرا نکنید. ابتدا Backup و Staging؛ هیچ migration تولید در این کار اجرا نشده است. migration جدید transaction دارد و جدول قدیمی را بازسازی/حذف نمی‌کند. تغییر امنیتی Auth/Profile trigger و service-only RPCها را در staging بررسی کنید. این migration یک‌بار اجرا می‌شود، اجرای دوبارهٔ آن روش upgrade نیست.
 

@@ -66,6 +66,8 @@ async function session(user,viewport,authorize=true){
       response={connections:calls.some(call=>call.pathname.endsWith('/account/disconnect'))?[]:[{id:'browser-test-grant',client_id:'chatgpt-browser-test',name:'ChatGPT',scopes:['profile.read','classes.read'],created_at:'2026-10-07T08:30:00Z',last_used_at:'2026-10-07T09:00:00Z'}]};
     }else if(pathname.endsWith('/account/disconnect')){
       assert.deepEqual(body,{grant_id:'browser-test-grant'});response={ok:true};
+    }else if(pathname.endsWith('/account/admin/clients')){
+      response={ok:true,client_id:'00000000-0000-4000-8000-000000000008',client_secret:'scs_'+('B'.repeat(42))+'8'};
     }else{errors.push('Unexpected OAuth endpoint '+pathname);await route.fulfill({status:404,headers,body:JSON.stringify({error:'invalid_request'})});return;}
     await route.fulfill({status:200,headers,body:JSON.stringify(response)});
   });
@@ -117,6 +119,56 @@ try{
   await connected.page.getByRole('button',{name:'قطع اتصال',exact:true}).click();
   await connected.page.waitForFunction(()=>document.querySelector('#connectedApps').textContent.includes('هیچ برنامه‌ای'));
   assert.equal(connected.calls.filter(call=>call.pathname.endsWith('/account/disconnect')).length,1);checks++;
+
+  const manager=await session('manager',{width:390,height:844},false);
+  await manager.page.waitForFunction(()=>document.querySelector('#content').textContent.includes('برنامه امروز'));
+  await manager.page.evaluate(()=>{
+    window.__TEST_MFA=[];
+    window.SystemCore.state.sb.auth.mfa.challengeAndVerify=async({code})=>{
+      window.__TEST_MFA.push(code);
+      return code==='123456'?{}:{error:{message:'Invalid fixture OTP'}};
+    };
+    return window.SystemCore.navigate('connected-apps');
+  });
+  const callback='https://chatgpt.com/aip/12345/oauth/callback?workspace=0088';
+  await manager.page.locator('#oauthClientCallback').fill(callback);
+  assert.equal(await manager.page.locator('#oauthClientCallback').inputValue(),callback);
+  assert.equal(await manager.page.locator('#oauthClientName').inputValue(),'ChatGPT');
+  assert.deepEqual(await manager.page.locator('.oauth-client-scope').evaluateAll(inputs=>inputs.map(input=>[input.value,input.checked])),[
+    ['profile.read',true],['classes.read',false],['grades.read',false],['assignments.read',false]
+  ]);
+  assert.equal(await manager.page.locator('#oauthClientPkce').isChecked(),true);
+  assert.equal(await manager.page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,'Manager registration form overflow');
+  await manager.page.screenshot({path:'test-results/oauth-manager-registration-mobile.png',fullPage:true});
+  await manager.page.locator('#oauthClientRegister').click();
+  await manager.page.locator('#mfaView').waitFor({state:'visible'});
+  assert.equal(manager.calls.filter(call=>call.pathname.endsWith('/account/admin/clients')).length,0);
+  await manager.page.locator('#mfaCode').fill('999999');
+  await manager.page.locator('#mfaSubmit').click();
+  await manager.page.waitForFunction(()=>window.__TEST_MFA.includes('999999'));
+  assert.equal(manager.calls.filter(call=>call.pathname.endsWith('/account/admin/clients')).length,0);
+  assert.equal(await manager.page.locator('#mfaView').isVisible(),true);
+  await manager.page.locator('#mfaCode').fill('123456');
+  await manager.page.locator('#mfaSubmit').click();
+  await manager.page.locator('#oauthClientCredentials').waitFor({state:'visible'});
+  assert.equal(await manager.page.locator('#appView').isVisible(),true);
+  assert.equal(await manager.page.locator('#mfaView').isVisible(),false);
+  assert.equal(await manager.page.locator('#oauthClientCallback').inputValue(),callback);
+  const registrationCalls=manager.calls.filter(call=>call.pathname.endsWith('/account/admin/clients'));
+  assert.equal(registrationCalls.length,1);
+  assert.deepEqual(registrationCalls[0].body,{name:'ChatGPT',redirect_uris:[callback],allowed_scopes:['profile.read'],public_client:false,pkce_required:true});
+  assert.equal(await manager.page.locator('#oauthRegisteredClientId').inputValue(),'00000000-0000-4000-8000-000000000008');
+  assert.equal(await manager.page.locator('#oauthRegisteredClientSecret').inputValue(),'scs_'+('B'.repeat(42))+'8');
+  const secretInput=await manager.page.locator('#oauthRegisteredClientSecret').elementHandle();
+  assert.equal(await manager.page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,'Manager registration result overflow');
+  assert.equal(await manager.page.locator('#oauthClientCredentials button').evaluateAll(buttons=>buttons.some(button=>button.scrollWidth>button.clientWidth+1)),false,'Manager credential button text overflow');
+  await manager.page.screenshot({path:'test-results/oauth-manager-credentials-mobile.png',fullPage:true});
+  await manager.page.locator('#oauthDismissCredentials').click();
+  assert.equal(await secretInput.evaluate(input=>input.value),'','Dismiss must clear the detached secret input');
+  await secretInput.dispose();
+  assert.equal(await manager.page.locator('#oauthClientCredentials').isVisible(),false);
+  assert.equal(await manager.page.locator('#oauthClientCredentials input').count(),0);
+  assert.equal(await manager.page.locator('#oauthRegisteredClientSecret').count(),0);checks++;
 
   assert.deepEqual(errors,[]);
   console.log(`OAuth Chromium smoke checks: ${checks} passed; RTL desktop/mobile screenshots saved. Auth/OAuth HTTPS responses are mocked; school profile reads use the PostgreSQL test database.`);

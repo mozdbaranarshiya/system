@@ -42,6 +42,7 @@ function setupPersianDigits(){
   document.addEventListener("input",e=>{
     const el=e.target;
     if(!(el instanceof HTMLInputElement||el instanceof HTMLTextAreaElement))return;
+    if(el.closest("[data-machine-text]"))return;
     if(["password","file","hidden","checkbox","radio","number","date","time","datetime-local"].includes(el.type))return;
     const pos=el.selectionStart, next=toFaDigits(el.value);
     if(next!==el.value){
