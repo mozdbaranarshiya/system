@@ -16,8 +16,9 @@ event.preventDefault();const b=$('#passwordSubmit');if(b.disabled)return;b.disab
 try{await changePassword();await c.enterApp();}catch(error){c.toast(c.errText(error),true);}finally{b.disabled=false;}};
 $('#passwordLogout').onclick=c.logout;return true;};
 V.routes.security=async()=>{
-V.page('امنیت حساب','تغییر رمز و مدیریت نشست‌ها',`<div class="card v7-narrow"><form id="securityForm"><div class="form-grid">${fields()}</div>${V.toolbar(V.button('changePassword','تغییر رمز'))}</form>${V.button('signOutEverywhere','خروج از همه دستگاه‌ها','btn-ghost')}<p class="hint">رمز جدید باید متفاوت از کد ملی و رمز فعلی باشد.</p></div>`);
+V.page('امنیت حساب','تغییر رمز و مدیریت نشست‌ها',`<div class="card v7-narrow"><form id="securityForm"><div class="form-grid">${fields()}</div>${V.toolbar(V.button('changePassword','تغییر رمز'))}</form>${V.button('signOutEverywhere','خروج از همه دستگاه‌ها','btn-ghost')}<div class="card"><h3>برنامه‌های متصل</h3><div id="oauthConnectedApps">در حال بررسی اتصال‌ها…</div></div><p class="hint">رمز جدید باید متفاوت از کد ملی و رمز فعلی باشد.</p></div>`);
 $('#securityForm').onsubmit=event=>event.preventDefault();
 V.bind('#changePassword',async()=>{if(!$('#securityForm').reportValidity())return;await changePassword();$('#securityForm').reset();});
-V.bind('#signOutEverywhere',async()=>{const {error}=await s.sb.auth.signOut({scope:'global'});if(error)throw error;c.toast('از همه دستگاه‌ها خارج شدید.');});};
+V.bind('#signOutEverywhere',async()=>{const {error}=await s.sb.auth.signOut({scope:'global'});if(error)throw error;c.toast('از همه دستگاه‌ها خارج شدید.');});
+await window.SchoolOAuth?.renderConnectedApps?.();};
 })();
