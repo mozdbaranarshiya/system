@@ -43,12 +43,23 @@ ChatGPT → Supabase Auth /oauth/authorize → GitHub Pages (?authorization_id=.
 
 Token Revocation/Grant management را از API استاندارد Supabase Auth و `supabase.auth.oauth.revokeGrant(clientId)` استفاده کنید؛ endpoint سفارشی برای Token و جدول Authorization Code نسازید. اسناد رسمی: [Getting Started](https://supabase.com/docs/guides/auth/oauth-server/getting-started)، [Flows](https://supabase.com/docs/guides/auth/oauth-server/oauth-flows).
 
+## مانع انتشار: افشای کد ملی در خود OAuth JWT
+
+**بسیار مهم:** Supabase OAuth JWT استاندارد دارای claim اجباری `email` و ممکن است دارای `user_metadata` باشد؛ فیلتر scope `profile` فقط کافی نیست. در این سامانه email کاربر `national_id@school.local` است و metadata ایجاد/ویرایش کاربران نیز `national_id` دارد. **بنابراین دریافت OAuth Access Token توسط ChatGPT می‌تواند کد ملی (نام کاربری سامانه) را افشا کند، حتی اگر API فقط نام نمایشی برگرداند.**
+
+این یک **شرط مسدودکنندهٔ انتشار** است. برای جلوگیری از فعال‌شدن اشتباهی، `CHATGPT_OAUTH_PRIVACY_SAFE` در `config.js` به‌صورت پیش‌فرض `false` است و Edge Function نیز بدون متغیر محیطی `CHATGPT_OAUTH_PRIVACY_SAFE=true` درخواست را رد می‌کند. این Flag **راه‌حل حریم خصوصی نیست**؛ تنها پس از انجام اصلاح واقعی و تست claimها می‌توان آن را فعال کرد.
+
+راه‌حل نهایی باید ایمیل Auth را از شناسهٔ ملی مستقل کند (در عین حفظ Login نام کاربری با یک لایهٔ نگاشت امن سمت سرور)، metadata حساس را از JWT OAuth حذف کند، و تک‌تک Claimهای Access Token، UserInfo و OIDC را با یک حساب واقعی بررسی کند. چون حذف email از JWT استاندارد Supabase ممکن نیست (required claim)، صرفاً Auth Hook برای حذف metadata یا غیر فعال کردن Scope email کافی نیست. **قبل از رفع این وابستگی، پروژه را روی محیط تولید OAuth-enable نکنید.**
+
+منابع: [Supabase OAuth Token Security](https://supabase.com/docs/guides/auth/oauth-server/token-security)، [Supabase Custom Access Token Hook](https://supabase.com/docs/guides/auth/auth-hooks/custom-access-token-hook).
+
 ## راه‌اندازی پروژه واقعی
 
 1. **تطبیق پروژه:** پیش از اجرا، URL پروژهٔ متصل به سایت در `config.js` را با Project Ref / پنل خود تطبیق دهید. اشتباه گرفتن دو پروژه موجب خرابی یا نشت داده می‌شود.
 2. روی **همان Supabase Project** از Authentication → OAuth Server، OAuth 2.1 Server را فعال کنید. Site URL و Authorization Path را طوری تنظیم کنید که آدرس نهایی دقیقاً `https://mozdbaranarshiya.github.io/system/` شود. مسیر ساخته‌شده را با یک درخواست آزمایشی بررسی کنید؛ تنظیم Site URL بر لینک‌های دیگر Auth اثر دارد.
 3. در Authentication → OAuth Apps، یک Client به نام ChatGPT بسازید. برای ChatGPT به‌عنوان سرویس سمت سرور از confidential client استفاده کنید (با توجه به روش Token Endpoint Authentication پشتیبانی‌شده توسط رابط ChatGPT). **فقط URI برگشت واقعی نمایش‌داده‌شده در تنظیمات ChatGPT** را ثبت کنید. Redirect URI باید Exact Match باشد؛ هیچ URL ساختگی یا `*` وارد نکنید. `client_id` را بردارید و `client_secret` را فقط در پیکربندی محرمانهٔ ChatGPT نگه دارید، نه در سایت یا Git.
 4. در `config.js`، مقدار `CHATGPT_OAUTH_CLIENT_ID` را با شناسهٔ واقعی جایگزین کنید (این شناسه Secret نیست). در محیط Edge Function همان مقدار را به‌عنوان Secret/Environment `CHATGPT_OAUTH_CLIENT_ID` تنظیم کنید. کلیدهای سرویس Supabase را فقط در Edge Function نگه دارید؛ کد فعلی با `SUPABASE_SECRET_KEYS` / `SUPABASE_SERVICE_ROLE_KEY` سازگار است.
+   - فقط پس از رفع مشکل افشای کد ملی و اجرای آزمون‌های JWT/UserInfo، Flag عمومی `CHATGPT_OAUTH_PRIVACY_SAFE: true` و Secret هم‌نام Edge Function با مقدار `true` فعال شوند. در حالت پیش‌فرض هر دو خاموش می‌مانند.
 5. پس از تأیید وضعیت دیتابیس و پشتیبان‌گیری، Migration `supabase/migrations/20261009_chatgpt_oauth.sql` را **پس از** Migrationهای v7 اعمال کنید. این Migration روی RLS موجود و نقش PostgREST `authenticator` اثر امنیتی دارد. پیش از اجرا، هر `pgrst.db_pre_request` موجود را بررسی کنید؛ Migration در صورت وجود Hook متفاوت خطا می‌دهد و آن را بی‌اجازه جایگزین نمی‌کند. تأثیر بر APIهای عادی سایت را تست کنید.
 6. Edge Function را از همان پروژه deploy کنید:
    ```bash
@@ -77,4 +88,4 @@ Token Revocation/Grant management را از API استاندارد Supabase Auth
 
 ## وضعیت پایان کار
 
-کد Integration و تست‌های Mock افزوده شده‌اند، **اما** پیکربندی واقعی OAuth Client، راه‌اندازی Supabase OAuth Server، نصب Migration، Deploy، تست زنده و Security Review در محیط عملیاتی هنوز لازم است. نباید این وضعیت را «کاملاً production-ready» یا «اتصال واقعی موفق» گزارش کرد.
+کد Integration و تست‌های Mock/پایگاه دادهٔ آزمایشی افزوده شده‌اند، **اما** پیکربندی واقعی OAuth Client، راه‌اندازی Supabase OAuth Server، نصب Migration، Deploy، تست زنده و Security Review در محیط عملیاتی هنوز لازم است. نباید این وضعیت را «کاملاً production-ready» یا «اتصال واقعی موفق» گزارش کرد.
