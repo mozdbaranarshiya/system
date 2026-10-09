@@ -54,6 +54,12 @@ const verify = async (name, method, rpc, opts, expected) => {
 const meta = await verify("protected metadata", "GET", "", { metadata: true }, 200);
 assert.equal(meta.body.resource, "https://test.invalid/functions/v1/chatgpt-mcp"); passed++;
 assert.deepEqual(Array.from(meta.body.scopes_supported), ["profile"]); passed++;
+const sse = await verify("stateless MCP rejects authenticated SSE GET","GET","",
+  {},405);
+assert.equal(sse.body.error,"sse_not_supported"); passed++;
+const unauthGet = await verify("GET advertises bearer challenge","GET","",
+  {auth:false},401);
+assert.ok(unauthGet.headers.get("www-authenticate"));passed++;
 const init = await verify("initialization", "POST", "initialize", {}, 200);
 assert.equal(init.body.result.protocolVersion, "2025-03-26"); passed++;
 const listing = await verify("tools listing", "POST", "tools/list", { auth: false }, 200);
