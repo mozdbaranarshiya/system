@@ -46,12 +46,13 @@ async function showConsent(){
       return true;
     }
     if(data.client?.id!==configuredClient())throw new Error('UNKNOWN_CLIENT');
-    const allowed=new Set(['openid','email','profile']);
-    if(String(data.scope||'').split(/\s+/).some(x=>x&&!allowed.has(x)))
+    // This school uses national-ID-derived emails: prohibit email / openid scopes.
+    const requestedScopes=String(data.scope||'').trim().split(/\s+/);
+    if(requestedScopes.length!==1||requestedScopes[0]!=='profile')
       throw new Error('UNSUPPORTED_SCOPE');
     $('#oauthClientName').textContent=String(data.client.name||'ChatGPT');
     $('#oauthAccountName').textContent=s.profile.full_name;
-    $('#oauthAccountRole').textContent=V.label(s.profile.role);
+    $('#oauthAccountRole').textContent=({manager:'مدیر',teacher:'دبیر',student:'دانش‌آموز'})[s.profile.role]||s.profile.role;
     $('#oauthRedirectUri').textContent=String(data.redirect_uri||'');
     $('#oauthNativeScopes').textContent=String(data.scope||'email');
     $('#oauthApprove').disabled=false;
