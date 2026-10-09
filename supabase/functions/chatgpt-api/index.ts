@@ -48,7 +48,8 @@ Deno.serve(async (request) => {
   try {
     const url = Deno.env.get("SUPABASE_URL")?.replace(/\/$/, "");
     const clientId = Deno.env.get("CHATGPT_OAUTH_CLIENT_ID");
-    if (!url || !clientId) return json(503, { error: "not_configured" });
+    if (!url || !clientId || Deno.env.get("CHATGPT_OAUTH_PRIVACY_SAFE") !== "true")
+      return json(503, { error: "not_configured" });
 
     // Unverified JWT payload is used ONLY as an additional restriction;
     // the authoritative user identity comes from a live Supabase Auth check.
