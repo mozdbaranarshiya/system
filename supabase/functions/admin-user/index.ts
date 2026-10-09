@@ -104,6 +104,10 @@ Deno.serve(async (req) => {
       throw new Error(`UNAUTHORIZED: ${formatError(authError || "user not found")}`);
     }
 
+    // OAuth clients use the narrow chatgpt-api resource server, not admin actions.
+    const {data: claimsData, error: claimsError}=await caller.auth.getClaims(token);
+    if(claimsError || !claimsData?.claims || claimsData.claims.client_id)throw new Error("UNAUTHORIZED");
+
     // Manager authorization is checked with the server/admin client.
     const { data: callerProfile, error: profileError } = await admin
       .from("profiles")
