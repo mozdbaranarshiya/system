@@ -203,6 +203,10 @@ npm run test:browser
 | `assets/icons/` و `manifest.webmanifest` | نشان و هویت برنامه |
 | `tests/` و `package*.json` | تست توسعه؛ خارج از مسیر اجرای سایت |
 
+## اتصال حساب به ChatGPT (OAuth 2.1)
+
+راهنمای فنی و استقرار امن در [docs/chatgpt-oauth.md](docs/chatgpt-oauth.md) قرار دارد. این قابلیت تا ثبت OAuth Client، اجرای Migration و تست روی Supabase واقعی فعال نخواهد بود. هیچ رمز عبور یا OTP به ChatGPT ارسال نمی‌شود.
+
 ## GitHub Pages
 
 پس از استقرار دیتابیس و توابع، تغییرات رابط را به `main` منتقل کنید. در Settings → Pages، گزینه Deploy from a branch، شاخه `main` و پوشه `/ (root)` را انتخاب کنید. آدرس این مخزن:
