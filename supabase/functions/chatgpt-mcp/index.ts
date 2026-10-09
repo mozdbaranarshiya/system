@@ -54,7 +54,11 @@ Deno.serve(async (req) => {
     });
   }
   if (!path.endsWith("/chatgpt-mcp")) return respond(404, { error: "not_found" });
-  if (req.method === "GET") return challenge(); // Stateless MCP; no SSE subscriptions.
+  if (req.method === "GET") {
+    // Streamable HTTP allows rejecting unsupported SSE GET with HTTP 405.
+    return req.headers.has("Authorization")
+      ? respond(405, { error: "sse_not_supported" }) : challenge();
+  }
   if (req.method !== "POST") return respond(405, { error: "method_not_allowed" });
   if (Number(req.headers.get("Content-Length") || 0) > 16384)
     return respond(413, { error: "request_too_large" });
