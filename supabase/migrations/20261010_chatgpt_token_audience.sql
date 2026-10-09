@@ -30,6 +30,7 @@ begin
   -- Required claim "email" stays present, but is a pseudonymous identifier.
   payload := jsonb_set(payload,'{aud}',to_jsonb(cfg.audience),true);
   payload := payload - 'user_metadata' - 'app_metadata';
+  payload := jsonb_set(payload,'{phone}',to_jsonb(''::text),true);
   return jsonb_set(event,'{claims}',payload,true);
 end $$;
 revoke all on function system_private.chatgpt_access_token_hook(jsonb) from public,anon,authenticated;
