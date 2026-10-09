@@ -425,8 +425,17 @@ async function login(e){
   if(!/^\d{10}$/.test(nid))return toast("کد ملی باید ۱۰ رقم باشد.",true);
   const btn=$("#loginForm button[type=submit]");btn.disabled=true;
   try{
-    const {data,error}=await state.sb.auth.signInWithPassword({email:`${nid}@school.local`,password});
-    if(error)return toast("نام کاربری یا رمز عبور نادرست است.",true);
+    // Password is sent only to the school's Supabase Edge login adapter.
+    // Supabase Auth emails no longer contain national IDs after migration.
+    const {data:credentials,error:loginError}=await state.sb.functions.invoke("school-login",{
+      body:{national_id:nid,password}
+    });
+    if(loginError||!credentials?.access_token||!credentials?.refresh_token)
+      return toast("نام کاربری یا رمز عبور نادرست است.",true);
+    const {data,error}=await state.sb.auth.setSession({
+      access_token:credentials.access_token,refresh_token:credentials.refresh_token
+    });
+    if(error||!data?.session)return toast("ورود ناموفق بود.",true);
     state.session=data.session; await enterApp();
   }catch(error){toast(errText(error),true)}finally{btn.disabled=false;}
 }
