@@ -4,7 +4,7 @@ import {stripTypeScriptTypes} from 'node:module';
 import vm from 'node:vm';
 
 const raw=await readFile('supabase/functions/chatgpt-api/index.ts','utf8');
-const source=stripTypeScriptTypes(raw.replace(/^import .*;\n/,''));
+const source=stripTypeScriptTypes(raw.replace(/^import .*;\r?\n/m,''));
 const issuer='https://test.invalid/auth/v1';
 const now=Math.floor(Date.now()/1000);
 const makeToken=claims=>[
