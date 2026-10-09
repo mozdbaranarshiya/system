@@ -30,16 +30,10 @@ try {
   await asUser(db,ids.teacher,async()=>{
     assert.equal((await db.query('select count(*)::int n from public.oauth_connected_apps')).rows[0].n,0);
     checks++;
-    await assert.rejects(
-      db.query("update public.oauth_connected_apps set revoked_at=now() where user_id=$1",[ids.student]),
-      /permission denied|row-level security|ACCESS_DENIED|RLS/
-    ).catch(async e=>{
-      // A hidden UPDATE can legitimately return zero rows rather than throw.
-      if(e.code==='ERR_ASSERTION') {
-        const rows=await db.query("select count(*)::int n from public.oauth_connected_apps where user_id=$1",[ids.student]);
-        assert.equal(rows.rows[0].n,0);
-      } else throw e;
-    });
+    // An unauthorized UPDATE sees zero rows under RLS; it may not throw.
+    const result=await db.query("update public.oauth_connected_apps set revoked_at=now() where user_id=$1 returning user_id",[ids.student]);
+    assert.equal(result.rows.length,0);
+    checks++;
   });
   await asUser(db,ids.student,async()=>{
     const {rows}=await db.query("update public.oauth_connected_apps set revoked_at=now() where user_id=$1 returning revoked_at",[ids.student]);
