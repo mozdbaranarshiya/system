@@ -54,7 +54,7 @@ async function request(action='me',scenario={},method='GET'){
     Deno:{env:{get:name=>({
       SUPABASE_URL:'https://test.invalid',SUPABASE_ANON_KEY:'public',
       SUPABASE_SERVICE_ROLE_KEY:'service',CHATGPT_OAUTH_CLIENT_ID:'chatgpt-id',
-      CHATGPT_OAUTH_PRIVACY_SAFE:'true'
+      CHATGPT_OAUTH_PRIVACY_SAFE:scenario.privacySafe===false?'false':'true'
     })[name]},serve:fn=>handler=fn},
     Request,Response,URL,Date,JSON,Object,String,Number,Set,Promise,
     atob:encoded=>Buffer.from(encoded,'base64').toString('binary')
@@ -71,6 +71,7 @@ async function check(title,action,scenario,status,expected){
   count++;
   return result;
 }
+await check('Privacy gate fails closed','me',{privacySafe:false},503,{error:'not_configured'});
 await check('Reject missing Bearer','me',{noAuth:true},401);
 await check('Reject another OAuth client','me',{claims:{client_id:'wrong-client'}},401);
 await check('Reject expired access tokens','me',{claims:{exp:now-1}},401);
