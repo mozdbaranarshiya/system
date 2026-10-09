@@ -26,13 +26,14 @@ try {
   await db.query("insert into system_private.chatgpt_oauth_config (client_id,audience) values($1,$2)",
     ['chatgpt-id','https://test.invalid/functions/v1/chatgpt-mcp']);
   const event={claims:{sub:ids.student,client_id:'chatgpt-id',aud:'authenticated',
-    email:'u-pseudonym@school.local',user_metadata:{national_id:'0123456789'},
+    email:'u-pseudonym@school.local',phone:'+989123456789',user_metadata:{national_id:'0123456789'},
     app_metadata:{role:'manager'}}};
   const hookResult=(await db.query(
     "select system_private.chatgpt_access_token_hook($1::jsonb) as value",
     [JSON.stringify(event)])).rows[0].value;
   assert.equal(hookResult.claims.aud,'https://test.invalid/functions/v1/chatgpt-mcp');checks++;
   assert.equal(hookResult.claims.email,'u-pseudonym@school.local');checks++;
+  assert.equal(hookResult.claims.phone,'');checks++;
   assert.equal(hookResult.claims.user_metadata,undefined);checks++;
   assert.equal(hookResult.claims.app_metadata,undefined);checks++;
   const regular=(await db.query(
