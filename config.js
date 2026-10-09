@@ -4,5 +4,6 @@
 window.APP_CONFIG = {
   SUPABASE_URL: "https://efibfevyiepkwpnobaro.supabase.co",
   SUPABASE_ANON_KEY: "sb_publishable_zbEGYX6DGhjFRQf6FWiIWQ_IdYj84nW",
+  CHATGPT_OAUTH_CLIENT_ID: "SET_REGISTERED_CHATGPT_CLIENT_ID",
   SCHOOL_NAME: "سامانه آموزش و پرورش استان اصفهان"
 };
