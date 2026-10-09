@@ -1,91 +1,130 @@
-# اتصال امن ChatGPT به سامانه `system`
+# اتصال فقط‌خواندنی ChatGPT به سامانه مدارس — راهنمای اجرا و بررسی امنیت
 
-> وضعیت: کد پیشنهادی روی شاخهٔ توسعه است؛ تا انجام مراحل بخش «قبل از انتشار» **قابل استفاده در محیط تولید نیست**. این قابلیت مستقل از روش ورود موجود طراحی نشده است؛ بر Supabase Auth متکی است.
+> **تا تأیید پروژهٔ Supabase و تست واقعی فعال نکنید.** این شاخه شامل کد قابل تست است، نه یک اتصال زندهٔ تأییدشده. از ادغام کد ورود جدید در GitHub Pages پیش از استقرار school-login خودداری کنید.
 
-## معماری و جریان اتصال
+## معماری
 
-- Frontend: GitHub Pages، رابط فعلی `index.html`، `app.js` و `js/oauth.js`؛ ورود با کد ملی و رمز عبور **فقط داخل دامنهٔ سامانه** و Supabase Auth انجام می‌شود.
-- Authorization Server: **Supabase Auth OAuth 2.1 Server**. خودش کلاینت‌ها، redirect URI دقیق، Authorization Code + PKCE S256، Consent واقعی، Refresh/Rotation، لغو Grant و endpointهای استاندارد را مدیریت می‌کند. از OAuth Server موازی، Implicit و ارسال رمز به ChatGPT استفاده نکنید.
-- Resource Server: `supabase/functions/chatgpt-api/index.ts` یک Edge Function برای درخواست‌های فقط‌خواندنی. API از Supabase Auth توکن را بررسی می‌کند، Client را به کلاینت ثبت‌شده محدود می‌کند، وضعیت اتصال و پروفایل را از دیتابیس می‌خواند، سطح MFA مدیر را الزام می‌کند، سپس **مجوز داخلی/مالکیت منبع** را کنترل می‌کند.
-- Postgres: `oauth_connected_apps` برای دسترسی‌های محدود و لغو فوری؛ RLS و `oauth_postgrest_guard` برای جلوگیری از دسترسی مستقیم توکن‌های OAuth به API گستردهٔ Supabase. دو Edge Function قدیمی نیز JWT دارای `client_id` را رد می‌کنند.
-- Roleها از خود دیتابیس: فقط `student`، `teacher`، `manager`؛ هیچ Role ارسالی از طرف ChatGPT معتبر نیست.
+1. کاربر فقط در صفحهٔ رسمی مدرسه با کد ملی، رمز عبور و (برای مدیر) TOTP وارد می‌شود. رمز و کد TOTP هرگز از ChatGPT درخواست نمی‌شوند.
+2. [school-login](../supabase/functions/school-login/index.ts) کد ملی را در جدول private-by-RLS profiles پیدا می‌کند، ایمیل **غیرهویتی** واقعی Auth را از Admin API می‌گیرد، رمز را با خود Supabase Auth بررسی می‌کند و نشست را به مرورگر مدرسه بازمی‌گرداند. خود ایمیل دیگر از کد ملی ساخته نمی‌شود.
+3. Supabase Auth OAuth 2.1 Server مسئول ثبت Client، Authorization Code + PKCE، Consent، Token، Refresh و Grant است. [js/oauth.js](../js/oauth.js) فقط برای Client ازپیش‌ثبت‌شده و Scope استاندارد profile صفحهٔ رضایت را نمایش می‌دهد؛ در دیتابیس قابلیت‌های داخلی profile.read و classes.read ثبت می‌شوند (این‌ها **OAuth scope پروتکلی نیستند**).
+4. [chatgpt-mcp](../supabase/functions/chatgpt-mcp/index.ts) یک سرور MCP بدون حالت روی Streamable HTTP است. آدرس اصلی آن:
+   https://YOUR_REAL_PROJECT_REF.supabase.co/functions/v1/chatgpt-mcp
+   مسیر GET زیر برای کشف OAuth وجود دارد:
+   https://YOUR_REAL_PROJECT_REF.supabase.co/functions/v1/chatgpt-mcp/.well-known/oauth-protected-resource
+   این سرور تنها دو ابزار get_my_school_account و get_my_school_classes را عرضه می‌کند و هر دو read-only هستند.
+5. [chatgpt-api](../supabase/functions/chatgpt-api/index.ts) روی هر فراخوانی، توکن OAuth را با Supabase Auth تأیید می‌کند، client_id، issuer، audience اختصاصی، expiry، مجوز محلی معتبر، نقش، وضعیت حساب و MFA مدیر را بررسی می‌کند. فهرست کلاس فقط مطابق عضویت دانش‌آموز/تخصیص دبیر برگشت داده می‌شود؛ توکن با کد ملی در claim ایمیل رد می‌شود.
+6. [Migration 20261009](../supabase/migrations/20261009_chatgpt_oauth.sql) دسترسی مستقیم JWTهای OAuth به REST/RPC/Storage را می‌بندد. [Migration 20261010](../supabase/migrations/20261010_chatgpt_token_audience.sql) Custom Access Token Hook برای audience اختصاصی سرور MCP را تعریف می‌کند و user_metadata را از OAuth JWT حذف می‌کند؛ باید در Dashboard به‌صورت دستی فعال شود.
 
-```text
-ChatGPT → Supabase Auth /oauth/authorize → GitHub Pages (?authorization_id=...)
-→ Supabase existing session / login → manager TOTP AAL2 → password-ready gate
-→ Consent → Supabase approveAuthorization → code + state to ChatGPT
-→ /oauth/token (PKCE) → OAuth JWT (client_id) → Edge chatgpt-api
-→ live Auth verification + active grant + profile + user roles/assignments → response
-```
+## مانع اجرایی فعلی: پروژهٔ نامنطبق
 
-حالت SSO: اگر نشست معتبر سایت فعال باشد، مجدداً رمز عبور درخواست نمی‌شود؛ مدیر همچنان به MFA سطح `aal2` نیاز دارد. در حالت MFA enrollment، همان UI قبلی TOTP کار می‌کند. `must_change_password` مانع اتصال تا تغییر رمز می‌شود.
+- آدرس موجود در config.js مخزن: https://efibfevyiepkwpnobaro.supabase.co
+- پروژهٔ Supabase متصل به گفتگوی فعلی: pukanizbahswrupscfmg (این دو یکسان نیستند).
+- **هیچ SQL، Secret، Hook، تغییر کاربر یا Edge Function را روی پروژهٔ اشتباه اجرا نکنید.** نخست از Dashboard مالکیت پروژهٔ مقصد را تأیید کنید یا GitHub Pages را به پروژهٔ جدید و کنترل‌شده با مهاجرت مستقل و مجوز صریح متصل کنید. اطلاعات واقعی کاربران نباید بدون برنامهٔ انتقال به پروژهٔ متفاوت منتقل شود.
 
-## API و مجوزها
+## ترتیب استقرار، مخصوص مالک پروژهٔ صحیح
 
-| Endpoint | HTTP | OAuth | قابلیت مجاز محلی | کنترل داخلی |
-|---|---|---|---|---|
-| `/functions/v1/chatgpt-api/me` | GET | Bearer JWT + client_id | `profile.read` | کاربر فعال، رمز تغییرکرده، مدیر AAL2، Grant فعال |
-| `/functions/v1/chatgpt-api/my/classes` | GET | Bearer JWT + client_id | `classes.read` | دانش‌آموز: `class_students` خودش؛ دبیر: `teacher_assignments` خودش؛ مدیر: کلاس‌های سامانه پس از MFA |
+### ۱. آماده‌سازی
 
-این دو قابلیت محلی به شکل قابل ابطال در `oauth_connected_apps.scopes` قرار می‌گیرند. **این‌ها Scope استاندارد OAuth نیستند.** Supabase Auth در نسخهٔ فعلی Scope سفارشی `profile.read` یا `classes.read` را در Authorization Request پشتیبانی نمی‌کند. برای درخواست OAuth تنها از scope استاندارد `profile` استفاده کنید؛ از `email` و `openid` جز در صورت ضرورت خودداری کنید. سایر APIهای نمرات، دانش‌آموزان و نوشتن داده **فعلاً عمداً عرضه نشده‌اند**. برای افزودن آنها ابتدا مالکیت و مجوز هر منبع را بررسی و تست کنید.
+- از Auth Users، دیتابیس و تنظیمات فعلی پشتیبان بگیرید. محدودیت نرخ Auth، Recovery و امنیت GitHub Pages را بررسی کنید.
+- با Supabase CLI نسخهٔ فعلی، شاخه را دریافت کنید و فقط به پروژهٔ مرجع درست link کنید؛ پروژهٔ واقعی را با URL config.js تطبیق دهید.
+- متغیر SCHOOL_LOGIN_ORIGIN را دقیقاً برابر **origin** وب‌سایت تعیین کنید؛ برای این GitHub Pages مقدار آن https://mozdbaranarshiya.github.io است، **بدون** /system/. کلید Secret/Service Role تنها در تنظیمات امن Edge نگهداری شود.
 
-پاسخ `me`: `{"id":"...","display_name":"..."}`. پاسخ `my/classes`: `{"classes":[{"id":"...","title":"...","academic_year":"..."}]}`. اطلاعات حساس مثل کد ملی، نمره، رمز، توکن و MFA secret برنمی‌گردند.
+### ۲. ابتدا school-login، سپس سایت و مهاجرت هویت
 
-## Endpoints استاندارد Supabase Auth
+~~~bash
+supabase link --project-ref YOUR_VERIFIED_PROJECT_REF
+supabase secrets set SCHOOL_LOGIN_ORIGIN=https://mozdbaranarshiya.github.io
+supabase functions deploy school-login --no-verify-jwt
+~~~
 
-برای Supabase URL همان پروژهٔ مربوط به این سایت:
+school-login به‌دلیل استفاده قبل از لاگین باید بدون JWT gateway اجرا شود، اما خودش Origin، شناسه، رمز و Supabase Auth را بررسی می‌کند. HTTPS، نرخ‌محدودسازی Auth و پایش تلاش‌های ناموفق الزامی‌اند. با حساب‌های تست، ورود، تغییر رمز، MFA، Logout و Refresh را بررسی کنید.
 
-- Authorize: `https://<ref>.supabase.co/auth/v1/oauth/authorize`
-- Token و Refresh: `https://<ref>.supabase.co/auth/v1/oauth/token`
-- JWKS: `https://<ref>.supabase.co/auth/v1/.well-known/jwks.json`
-- OIDC Discovery: `https://<ref>.supabase.co/auth/v1/.well-known/openid-configuration`
-- OAuth Authorization Server Discovery: `https://<ref>.supabase.co/.well-known/oauth-authorization-server/auth/v1`
+**پیش از تغییر ایمیل حساب‌های قبلی**، فرانت‌اند این شاخه که از school-login استفاده می‌کند باید منتشر و آزموده شده باشد؛ نگاشت رمز قدیمی و جدید توسط همین Adapter انجام می‌شود. مسیر ورود قدیمی نباید پس از مهاجرت در تولید باقی بماند.
 
-Token Revocation/Grant management را از API استاندارد Supabase Auth و `supabase.auth.oauth.revokeGrant(clientId)` استفاده کنید؛ endpoint سفارشی برای Token و جدول Authorization Code نسازید. اسناد رسمی: [Getting Started](https://supabase.com/docs/guides/auth/oauth-server/getting-started)، [Flows](https://supabase.com/docs/guides/auth/oauth-server/oauth-flows).
+### ۳. مهاجرت ایمیل‌های حساس به شناسه‌های مبهم
 
-## مانع انتشار: افشای کد ملی در خود OAuth JWT
+اسکریپت [scripts/migrate-oauth-identities.ts](../scripts/migrate-oauth-identities.ts) حالت Dry-run دارد و هیچ رمز یا ایمیلی را چاپ نمی‌کند. ابتدا با Credential مدیر Auth پروژهٔ مقصد تست کنید و سپس با تأیید و بکاپ اجرا کنید:
 
-**بسیار مهم:** Supabase OAuth JWT استاندارد دارای claim اجباری `email` و ممکن است دارای `user_metadata` باشد؛ فیلتر scope `profile` فقط کافی نیست. در این سامانه email کاربر `national_id@school.local` است و metadata ایجاد/ویرایش کاربران نیز `national_id` دارد. **بنابراین دریافت OAuth Access Token توسط ChatGPT می‌تواند کد ملی (نام کاربری سامانه) را افشا کند، حتی اگر API فقط نام نمایشی برگرداند.**
+~~~bash
+export SUPABASE_URL=https://YOUR_VERIFIED_PROJECT_REF.supabase.co
+export SCHOOL_EXPECTED_SUPABASE_REF=YOUR_VERIFIED_PROJECT_REF
+export SUPABASE_SERVICE_ROLE_KEY=YOUR_SECRET_FROM_SECURE_ENV
+deno run --allow-env --allow-net scripts/migrate-oauth-identities.ts
+export SCHOOL_IDENTITY_MIGRATION_CONFIRM=I_HAVE_BACKED_UP_AND_DEPLOYED_SCHOOL_LOGIN
+deno run --allow-env --allow-net scripts/migrate-oauth-identities.ts --execute
+~~~
 
-این یک **شرط مسدودکنندهٔ انتشار** است. برای جلوگیری از فعال‌شدن اشتباهی، `CHATGPT_OAUTH_PRIVACY_SAFE` در `config.js` به‌صورت پیش‌فرض `false` است و Edge Function نیز بدون متغیر محیطی `CHATGPT_OAUTH_PRIVACY_SAFE=true` درخواست را رد می‌کند. این Flag **راه‌حل حریم خصوصی نیست**؛ تنها پس از انجام اصلاح واقعی و تست claimها می‌توان آن را فعال کرد.
+اسکریپت ایمیل Auth را به u-<UUID>@school.local تغییر می‌دهد و user_metadata را پاک می‌کند. تغییر نام کاربری قابل مشاهده در UI مدرسه رخ نمی‌دهد؛ profiles.national_id برای Login داخلی می‌ماند. هر خطا یا باقی‌ماندن ایمیل حساس در user یا identities باید جلوی فعال شدن OAuth را بگیرد.
 
-راه‌حل نهایی باید ایمیل Auth را از شناسهٔ ملی مستقل کند (در عین حفظ Login نام کاربری با یک لایهٔ نگاشت امن سمت سرور)، metadata حساس را از JWT OAuth حذف کند، و تک‌تک Claimهای Access Token، UserInfo و OIDC را با یک حساب واقعی بررسی کند. چون حذف email از JWT استاندارد Supabase ممکن نیست (required claim)، صرفاً Auth Hook برای حذف metadata یا غیر فعال کردن Scope email کافی نیست. **قبل از رفع این وابستگی، پروژه را روی محیط تولید OAuth-enable نکنید.**
+**ممیزی الزامی قبل از فعال‌سازی:** Auth admin.getUserById، خروجی /auth/v1/user برای JWT عادی و OAuth، OAuth JWT رمزگشایی‌شده، OAuth UserInfo برای هر Scope قابل درخواست، identities و user_metadata را با حساب تست بررسی کنید که کد ملی وجود نداشته باشد. از دادهٔ واقعی افراد در لاگ و تست عمومی استفاده نکنید. اگر قدیمی‌ترین شناسه‌ها یا نشست‌ها همچنان دادهٔ حساس برمی‌گردانند، انتشار را متوقف کنید و نشست‌های قدیمی را طبق سیاست مدرسه باطل کنید.
 
-منابع: [Supabase OAuth Token Security](https://supabase.com/docs/guides/auth/oauth-server/token-security)، [Supabase Custom Access Token Hook](https://supabase.com/docs/guides/auth/auth-hooks/custom-access-token-hook).
+### ۴. دیتابیس، OAuth Server و audience
 
-## راه‌اندازی پروژه واقعی
+- Migrationهای قدیمی v7 باید از قبل نصب باشند؛ سپس به ترتیب 20261009_chatgpt_oauth.sql و 20261010_chatgpt_token_audience.sql را با ابزار معمول Supabase اعمال کنید. اگر pgrst.db_pre_request از قبل Hook دیگری دارد، SQL **عمداً خطا می‌دهد**؛ بدون ترکیب امن Hookها آن را تغییر ندهید.
+- در Authentication → OAuth Server، OAuth 2.1 را فعال و Authorization path را به آدرس رضایت سایت https://mozdbaranarshiya.github.io/system/ تنظیم کنید. بررسی کنید پارامتر authorization_id در مرورگر باقی بماند.
+- ChatGPT Plugin هنگام ساخت صفحهٔ Callback/Redirect URI دقیق خود را نشان می‌دهد. **همان مقدار نمایش‌داده‌شده** را در Allowlist ثبت OAuth Client استفاده کنید؛ آدرس Redirect را حدس نزنید. ترجیح با Client ازپیش‌ثبت‌شده و PKCE S256 و Scope تنها profile است. Client ID را ثبت کنید، DCR عمومی را بدون ضرورت روشن نکنید.
+- جدول خصوصی hook را با مقادیر واقعی Client ID و Resource URL مقداردهی کنید:
 
-1. **تطبیق پروژه:** پیش از اجرا، URL پروژهٔ متصل به سایت در `config.js` را با Project Ref / پنل خود تطبیق دهید. اشتباه گرفتن دو پروژه موجب خرابی یا نشت داده می‌شود.
-2. روی **همان Supabase Project** از Authentication → OAuth Server، OAuth 2.1 Server را فعال کنید. Site URL و Authorization Path را طوری تنظیم کنید که آدرس نهایی دقیقاً `https://mozdbaranarshiya.github.io/system/` شود. مسیر ساخته‌شده را با یک درخواست آزمایشی بررسی کنید؛ تنظیم Site URL بر لینک‌های دیگر Auth اثر دارد.
-3. در Authentication → OAuth Apps، یک Client به نام ChatGPT بسازید. برای ChatGPT به‌عنوان سرویس سمت سرور از confidential client استفاده کنید (با توجه به روش Token Endpoint Authentication پشتیبانی‌شده توسط رابط ChatGPT). **فقط URI برگشت واقعی نمایش‌داده‌شده در تنظیمات ChatGPT** را ثبت کنید. Redirect URI باید Exact Match باشد؛ هیچ URL ساختگی یا `*` وارد نکنید. `client_id` را بردارید و `client_secret` را فقط در پیکربندی محرمانهٔ ChatGPT نگه دارید، نه در سایت یا Git.
-4. در `config.js`، مقدار `CHATGPT_OAUTH_CLIENT_ID` را با شناسهٔ واقعی جایگزین کنید (این شناسه Secret نیست). در محیط Edge Function همان مقدار را به‌عنوان Secret/Environment `CHATGPT_OAUTH_CLIENT_ID` تنظیم کنید. کلیدهای سرویس Supabase را فقط در Edge Function نگه دارید؛ کد فعلی با `SUPABASE_SECRET_KEYS` / `SUPABASE_SERVICE_ROLE_KEY` سازگار است.
-   - فقط پس از رفع مشکل افشای کد ملی و اجرای آزمون‌های JWT/UserInfo، Flag عمومی `CHATGPT_OAUTH_PRIVACY_SAFE: true` و Secret هم‌نام Edge Function با مقدار `true` فعال شوند. در حالت پیش‌فرض هر دو خاموش می‌مانند.
-5. پس از تأیید وضعیت دیتابیس و پشتیبان‌گیری، Migration `supabase/migrations/20261009_chatgpt_oauth.sql` را **پس از** Migrationهای v7 اعمال کنید. این Migration روی RLS موجود و نقش PostgREST `authenticator` اثر امنیتی دارد. پیش از اجرا، هر `pgrst.db_pre_request` موجود را بررسی کنید؛ Migration در صورت وجود Hook متفاوت خطا می‌دهد و آن را بی‌اجازه جایگزین نمی‌کند. تأثیر بر APIهای عادی سایت را تست کنید.
-6. Edge Function را از همان پروژه deploy کنید:
-   ```bash
-   supabase link --project-ref YOUR_REAL_PROJECT_REF
-   supabase functions deploy chatgpt-api
-   ```
-   سپس اصلاحات دو Edge Function `admin-user` و `account-security` را هم deploy کنید. برای این دو، JWT را در Supabase Auth بررسی کنید، `client_id` را رد کنید و کلید Service Role را داخل Browser قرار ندهید. تنظیم تأیید JWT Edge Functions را در Production بررسی کنید.
-7. GitHub Pages را با همین Branch/PR پس از تأیید CI منتشر کنید. `main` تا بررسی نهایی باید دست‌نخورده بماند.
-8. در ChatGPT هنگام ساخت Action/Connector مناسب، OAuth را با Authorize و Token URLهای بالا، Client ID/Secret و Scope استاندارد `profile` تنظیم کنید. API base URL را به Edge Function دهید و فقط دو عملیات GET بالا را در OpenAPI تعریف کنید. ChatGPT نباید رمز، کد ملی یا OTP را بپرسد.
-   - طرح عملیاتی قابل ورود به ChatGPT در [chatgpt-openapi.yaml](chatgpt-openapi.yaml) قرار دارد. آدرس Server آن باید با پروژهٔ واقعی Supabase یکسان باشد.
+~~~sql
+insert into system_private.chatgpt_oauth_config (singleton,client_id,audience)
+values (true,'YOUR_REGISTERED_CLIENT_ID',
+        'https://YOUR_VERIFIED_PROJECT_REF.supabase.co/functions/v1/chatgpt-mcp')
+on conflict (singleton) do update
+  set client_id = excluded.client_id, audience = excluded.audience;
+~~~
 
-## قطع اتصال و دورة عمر توکن
+- در Authentication → Hooks → Custom Access Token، تابع system_private.chatgpt_access_token_hook را انتخاب و فعال کنید. اگر از قبل Hook فعال وجود دارد **جایگزین نکنید**؛ منطق هر دو را به‌شکل کنترل‌شده ترکیب و آزمون کنید. audience توکن Client منتخب باید دقیقاً با URL Resource برابر باشد؛ سایر کاربران وب نباید تغییر JWT مخرب ببینند.
 
-کاربر در `امنیت حساب → برنامه‌های متصل → قطع اتصال ChatGPT` ابتدا Grant داخلی را `revoked_at` می‌کند تا **درخواست بعدی Edge** فوراً رد شود، سپس `revokeGrant` Supabase refresh/sessionهای OAuth را قطع می‌کند. این محافظت از محدودیت طبیعی JWTهای صادرشده که ممکن است تا Expiry در سرویس‌های دیگر پذیرفته شوند مهم است. Account Security سایت و خروج از همهٔ دستگاه‌ها جداگانه باقی می‌ماند.
+### ۵. Edge Resource و MCP، سپس فعال‌سازی محافظت‌شده
 
-مقادیر حساس در هیچ Log یا پیکربندی Public ذخیره نشوند. Audit محلی Connect/Disconnect را بدون Token ذخیره می‌کند؛ رخدادهای Authorization/Refresh را در Logهای Supabase Auth بررسی کنید. برای نرخ‌محدودسازی Login/Token/MFA از تنظیمات Supabase و در صورت نیاز لایهٔ Edge استفاده کنید.
+~~~bash
+supabase secrets set CHATGPT_OAUTH_CLIENT_ID=YOUR_REGISTERED_CLIENT_ID
+supabase secrets set CHATGPT_RESOURCE_AUDIENCE=https://YOUR_VERIFIED_PROJECT_REF.supabase.co/functions/v1/chatgpt-mcp
+supabase functions deploy chatgpt-api --no-verify-jwt
+supabase functions deploy chatgpt-mcp --no-verify-jwt
+supabase functions deploy admin-user
+supabase functions deploy account-security
+~~~
 
-## پیش از انتشار و سناریوهای واقعیِ الزامی
+این دو endpoint عمومی gateway JWT verification را خاموش می‌کنند، اما **chatgpt-api خودش به‌صورت الزامی JWT را معتبرسازی می‌کند** و هیچ داده‌ای بدون مجوز برنمی‌گرداند؛ chatgpt-mcp درخواست را با همان Bearer به chatgpt-api ارسال می‌کند. برای راه‌اندازی ابتدا Endpointهای عمومی initialize، tools/list و OAuth discovery را بررسی کنید، سپس با JWT نامعتبر، JWT Client دیگر، JWT با Audience اشتباه و JWT لغوشده حتماً رد شدن را آزمایش کنید.
 
-- اجرای `npm ci && npm run check && npm test && npm run test:oauth` روی Clone کامل پروژه با Node سازگار و PostgreSQL آزمایشی. Tests جدید در `tests/oauth.mjs` از Mock برای Auth/DB استفاده می‌کنند و **E2E محسوب نمی‌شوند**.
-- تست End-to-End روی **پروژهٔ آزمایشی Supabase که با GitHub Pages مرتبط است** برای دانش‌آموز، دبیر و مدیر: OAuth S256+state، callback، Token Exchange، Refresh، AAL2 و TOTP، MFA enrollment، Consent denied، IDOR در کلاس‌ها، Disconnect و Reconnect.
-- تست دسترسی مستقیم OAuth JWT به `/rest/v1/*`، `/rest/v1/rpc/*`، Storage، `admin-user` و `account-security`؛ همه باید رد شوند. در عین حال ورود و APIهای قبلی Browser نباید مختل شوند.
-- **ریسک حریم خصوصی هویت:** ایمیل داخلی حساب‌ها از کد ملی ساخته می‌شود؛ در Scope `email` یا برخی Endpointهای Supabase Auth احتمال افشای آن به Client خارجی وجود دارد. پیش از عرضه عمومی، داده‌های هویتی و OIDC UserInfo را بررسی و در صورت نیاز تغییر مدل ایمیل یا راهکار واسط ایزوله اجرا کنید.
-- مدیریت HTTP headers، CORS محدود، CSRF درخواست Consent، Session fixation، rate limits، audit events، رفتار SDK فعلی و سازگاری Host/Redirect بررسی شوند. `state` و PKCE را ChatGPT/OAuth Server کنترل می‌کنند؛ این‌ها جایگزین CSRF صفحات Forms نیستند.
-- Scopeهای OAuth سفارشی فعلاً توسط Supabase پشتیبانی نمی‌شوند؛ پیاده‌سازی آن‌ها در دیتابیس محلی، سطح OAuth Token را کاهش نمی‌دهد. تا اثبات قفل مستقیم سایر APIها، از ورود داده‌های حساس واقعی به جریان OAuth خودداری کنید.
+فقط **پس از** رفع کامل محرمانگی هویت، فعال بودن Audience Hook، بررسی Auth UserInfo/Identities، MFA، دیتابیس و تست زنده، Secret زیر را در محیط Edge تنظیم کنید و flag مشابه را در config.js پروژهٔ درست true کنید:
 
-## وضعیت پایان کار
+~~~bash
+supabase secrets set CHATGPT_OAUTH_PRIVACY_SAFE=true
+~~~
 
-کد Integration و تست‌های Mock/پایگاه دادهٔ آزمایشی افزوده شده‌اند، **اما** پیکربندی واقعی OAuth Client، راه‌اندازی Supabase OAuth Server، نصب Migration، Deploy، تست زنده و Security Review در محیط عملیاتی هنوز لازم است. نباید این وضعیت را «کاملاً production-ready» یا «اتصال واقعی موفق» گزارش کرد.
+هرگز فقط برای عبور از خطای 503 این Flag را true نکنید؛ به‌صورت پیش‌فرض عمداً خاموش است.
+
+## اتصال در ChatGPT
+
+1. در ChatGPT به **Settings → Plugins** یا صفحهٔ ساخت Plugin سفارشی در دسترس حساب/فضای کاری خود بروید. بسته به سطح دسترسی و نسخهٔ رابط ممکن است مسیر **Settings → Apps → Create** و Developer Mode باشد.
+2. نوع **Remote MCP / Custom MCP** را انتخاب کنید. URL دقیق MCP را تنظیم کنید:
+   https://YOUR_VERIFIED_PROJECT_REF.supabase.co/functions/v1/chatgpt-mcp
+3. احراز هویت **OAuth** را انتخاب کنید. Server از مسیر .well-known/oauth-protected-resource، Supabase Auth را معرفی می‌کند. برای Client ثبت‌شده، مقادیر مورد نیاز را از Supabase بگیرید؛ Scope درخواست فقط profile است. Authorization/Token endpointهای Supabase به‌ترتیب /auth/v1/oauth/authorize و /auth/v1/oauth/token هستند.
+4. Redirect URI نمایش داده‌شده در ChatGPT را در OAuth Client در Supabase ثبت کنید، سپس Scan Tools / Test Connection را اجرا کنید. هنگام اتصال، صفحهٔ رسمی مدرسه باز می‌شود؛ کاربر با کد ملی و رمز خودش وارد می‌شود، مدیر MFA را تکمیل می‌کند و به ChatGPT فقط دسترسی نمایش‌داده‌شده را تأیید یا رد می‌کند.
+5. در ChatGPT دو دستور آزمایشی بفرستید: «نام حساب مدرسهٔ متصل من را نمایش بده» و «کلاس‌هایی را که مجوز دیدنشان دارم نشان بده». عملیات افزودن، حذف، ثبت نمره یا تغییر داده اصلاً به‌عنوان Tool عرضه نشده‌اند.
+6. برای قطع دسترسی، در سامانهٔ مدرسه → امنیت حساب → برنامه‌های متصل، **قطع اتصال ChatGPT** را بزنید. تست کنید توکن قبلی از درخواست بعدی 403/401 بگیرد.
+
+فایل [docs/chatgpt-openapi.yaml](chatgpt-openapi.yaml) مربوط به API مستقیم قدیمی است و **برای Plugin مبتنی بر MCP جایگزین URL سرور MCP نیست**.
+
+## تست، مانیتورینگ و شرط انتشار
+
+~~~bash
+npm ci
+npm run check
+npm test
+npm run test:oauth
+~~~
+
+تست‌ها شامل تست PGlite دیتابیس و RLS، Mock امنیت Edge، JS/DOM رضایت، adapter ورود و JSON-RPC/MCP هستند، ولی **تست واقعی یکپارچهٔ Supabase و ChatGPT را جایگزین نمی‌کنند**. قبل از ادغام در main موارد زیر در محیط همان پروژهٔ مقصد باید ثبت شوند:
+
+- OAuth grant/deny، PKCE + state، Refresh/Rotation، expiry، Disconnect و Reconnect.
+- سطح نقش مدیر AAL1 در برابر AAL2، دانش‌آموز بدون کلاس، دبیر فقط کلاس‌های تخصیص‌یافته، جلوگیری از IDOR و تأیید عدم برگشت شناسهٔ ملی در تمام Claims و Auth endpoints.
+- دسترسی مستقیم OAuth JWT به REST/RPC/Storage و Edge Functionهای قدیمی باید رد شود؛ Login، MFA و تغییر رمز معمولی همچنان کار کنند.
+- Token Audience دقیق، client_id دقیق، متادیتای Protected Resource، درخواست POST initialize/tools/list/tools/call و پاسخ 401 با WWW-Authenticate.
+- بررسی Refresh Token، تنظیم rate limits، audit، تنظیمات Secret و مانیتور کردن لاگ‌ها بدون ذخیرهٔ JWT یا اطلاعات شخصی.
+
+**توضیح وضعیت:** GitHub PR به‌صورت Draft نگهداری شود تا پروژهٔ صحیح، هویت کاربران، OAuth Client، Hook، کلیدها و تست واقعی تأیید شوند. بدون دسترسی به پروژهٔ مقصد، هیچ گزارشی از «استقرار موفق» یا «اتصال واقعی ChatGPT» نباید ارائه شود.
+
+مراجع فنی: [Supabase OAuth Server](https://supabase.com/docs/guides/auth/oauth-server)، [Supabase MCP Authentication](https://supabase.com/docs/guides/auth/oauth-server/mcp-authentication)، [OpenAI Plugin OAuth](https://developers.openai.com/plugins/build/auth).
