@@ -1,0 +1,21 @@
+name: Security and OAuth tests
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci
+      - name: Syntax validation
+        run: npm run check
+      - name: Security, database, edge, UI and OAuth mock tests
+        run: npm test
