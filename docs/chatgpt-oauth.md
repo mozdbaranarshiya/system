@@ -58,6 +58,7 @@ Token Revocation/Grant management را از API استاندارد Supabase Auth
    سپس اصلاحات دو Edge Function `admin-user` و `account-security` را هم deploy کنید. برای این دو، JWT را در Supabase Auth بررسی کنید، `client_id` را رد کنید و کلید Service Role را داخل Browser قرار ندهید. تنظیم تأیید JWT Edge Functions را در Production بررسی کنید.
 7. GitHub Pages را با همین Branch/PR پس از تأیید CI منتشر کنید. `main` تا بررسی نهایی باید دست‌نخورده بماند.
 8. در ChatGPT هنگام ساخت Action/Connector مناسب، OAuth را با Authorize و Token URLهای بالا، Client ID/Secret و Scope استاندارد `profile` تنظیم کنید. API base URL را به Edge Function دهید و فقط دو عملیات GET بالا را در OpenAPI تعریف کنید. ChatGPT نباید رمز، کد ملی یا OTP را بپرسد.
+   - طرح عملیاتی قابل ورود به ChatGPT در [chatgpt-openapi.yaml](chatgpt-openapi.yaml) قرار دارد. آدرس Server آن باید با پروژهٔ واقعی Supabase یکسان باشد.
 
 ## قطع اتصال و دورة عمر توکن
 
