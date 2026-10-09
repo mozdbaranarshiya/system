@@ -2,6 +2,19 @@
 -- Supabase Auth OAuth 2.1 owns client registration, codes, tokens and grants.
 begin;
 
+-- Defense in depth: sensitive SECURITY DEFINER RPCs often call account_ready().
+-- Never treat a third-party OAuth session as a first-party school session.
+create or replace function public.account_ready() returns boolean
+language sql stable security definer set search_path=public
+as $
+  select coalesce(auth.jwt()->>'client_id','')=''
+    and coalesce((
+      select active and not must_change_password
+        and (role<>'manager' or coalesce(auth.jwt()->>'aal','aal1')='aal2')
+      from public.profiles where id=auth.uid()
+    ),false)
+$;
+
 create table public.oauth_connected_apps (
   user_id uuid not null references public.profiles(id) on delete cascade,
   client_id text not null check (length(client_id) between 1 and 200),
