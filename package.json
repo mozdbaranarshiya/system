@@ -3,12 +3,12 @@
   "version": "7.0.0",
   "description": "سامانه مدرسه فارسی و RTL با Supabase؛ بدون نیاز به build",
   "scripts": {
-    "test": "node tests/migrations-check.mjs && node tests/security.mjs && node tests/unit.mjs && node tests/edge.mjs && node tests/ui.mjs && node tests/oauth.mjs && node tests/oauth-db.mjs && node tests/oauth-ui.mjs",
+    "test": "node tests/migrations-check.mjs && node tests/security.mjs && node tests/unit.mjs && node tests/edge.mjs && node tests/ui.mjs && node tests/oauth.mjs && node tests/oauth-db.mjs && node tests/oauth-ui.mjs && node tests/mcp.mjs && node tests/school-login.mjs",
     "test:ui": "node tests/ui.mjs",
     "test:xlsx": "node tests/xlsx.mjs",
     "test:browser": "node tests/browser.mjs",
     "check": "node tests/syntax.mjs",
-    "test:oauth": "node tests/oauth.mjs && node tests/oauth-db.mjs && node tests/oauth-ui.mjs"
+    "test:oauth": "node tests/oauth.mjs && node tests/oauth-db.mjs && node tests/oauth-ui.mjs && node tests/mcp.mjs && node tests/school-login.mjs"
   },
   "type": "commonjs",
   "devDependencies": {
