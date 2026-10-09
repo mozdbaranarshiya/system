@@ -26,7 +26,6 @@ for (let page = 1; ; page++) {
   for (const user of users) {
     checked++;
     const target = "u-" + user.id + "@school.local";
-    const hasSensitiveMetadata = JSON.stringify(user.user_metadata || {}).includes("national_id");
     const changeNeeded = user.email !== target || Object.keys(user.user_metadata || {}).length > 0;
     if (!changeNeeded) continue;
     if (!execute) { changed++; continue; }
