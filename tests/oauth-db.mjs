@@ -42,6 +42,7 @@ try {
   await oauthUser(ids.student,async()=>{
     assert.equal((await db.query('select count(*)::int n from public.oauth_connected_apps')).rows[0].n,0);checks++;
     assert.equal((await db.query('select count(*)::int n from public.classes')).rows[0].n,0);checks++;
+    assert.equal((await db.query('select public.account_ready() as v')).rows[0].v,false);checks++;
     await assert.rejects(db.query('select public.oauth_postgrest_guard()'),/OAUTH_DIRECT_API_DISABLED/);checks++;
   });
   await asUser(db,ids.student,async()=>{
