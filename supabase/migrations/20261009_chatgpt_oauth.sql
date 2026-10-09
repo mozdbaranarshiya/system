@@ -6,14 +6,14 @@ begin;
 -- Never treat a third-party OAuth session as a first-party school session.
 create or replace function public.account_ready() returns boolean
 language sql stable security definer set search_path=public
-as $
+as $$
   select coalesce(auth.jwt()->>'client_id','')=''
     and coalesce((
       select active and not must_change_password
         and (role<>'manager' or coalesce(auth.jwt()->>'aal','aal1')='aal2')
       from public.profiles where id=auth.uid()
     ),false)
-$;
+$$;
 
 create table public.oauth_connected_apps (
   user_id uuid not null references public.profiles(id) on delete cascade,
