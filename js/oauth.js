@@ -41,7 +41,18 @@ async function showConsent(){
     const {data,error}=await s.sb.auth.oauth.getAuthorizationDetails(authorizationId);
     if(error||!data)throw new Error('INVALID_AUTHORIZATION');
     if(!('authorization_id' in data)){
-      // A previously approved OAuth request may not need another consent.
+      // Supabase may auto-approve an old grant. Do NOT bypass this site's
+      // local revocation or its strict (non-email) scope policy.
+      const [{data:nativeGrants,error:grantError},{data:localGrant,error:localError}]=await Promise.all([
+        s.sb.auth.oauth.getUserGrants(),
+        s.sb.from('oauth_connected_apps').select('scopes,revoked_at')
+          .eq('user_id',s.profile.id).eq('client_id',configuredClient()).maybeSingle()
+      ]);
+      const matching=(nativeGrants||[]).find(g=>g.client_id===configuredClient());
+      if(grantError||localError||!localGrant||localGrant.revoked_at
+         ||!matching||!Array.isArray(matching.scopes)
+         ||matching.scopes.length!==1||matching.scopes[0]!=='profile')
+        throw new Error('INVALID_GRANT');
       safeRedirect(data.redirect_url);
       return true;
     }
