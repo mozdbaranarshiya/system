@@ -75,7 +75,8 @@ export function makeHandler(deps: Dependencies): (req: Request) => Promise<Respo
     try {
       const base = deps.env("SUPABASE_URL")?.replace(/\/$/, "");
       const site = deps.env("OAUTH_SITE_URL");
-      if (!base || !site) throw new OAuthError("temporarily_unavailable", 503);
+      const dbSchema = deps.env("SYSTEM_DB_SCHEMA") ?? "public";
+      if (!base || !site || !/^[a-z_][a-z0-9_]{0,62}$/.test(dbSchema)) throw new OAuthError("temporarily_unavailable", 503);
       const siteURL = new URL(site);
       const localHTTP = deps.env("OAUTH_ALLOW_LOCAL_HTTP") === "true";
       const secureURL = (value: string) => {
@@ -100,7 +101,7 @@ export function makeHandler(deps: Dependencies): (req: Request) => Promise<Respo
       const serviceKey = readKey(deps.env, "SUPABASE_SECRET_KEYS", "SUPABASE_SERVICE_ROLE_KEY");
       async function rpc(name: string, data: ObjectData): Promise<ObjectData> {
         const result = await deps.fetch(base + "/rest/v1/rpc/" + name, {
-          method: "POST", headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
+          method: "POST", headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json", "Accept-Profile": dbSchema, "Content-Profile": dbSchema },
           body: JSON.stringify(data), signal: AbortSignal.timeout(15000),
         });
         if (!result.ok) throw new OAuthError("temporarily_unavailable", 503);

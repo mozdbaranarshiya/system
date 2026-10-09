@@ -2,6 +2,8 @@
 "use strict";
 
 const cfg = window.APP_CONFIG || {};
+const dbSchema = cfg.SUPABASE_DB_SCHEMA || "public";
+const assignmentBucket = cfg.ASSIGNMENT_BUCKET || "assignment-files";
 const configured = cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY &&
   !cfg.SUPABASE_URL.includes("YOUR_PROJECT") && !cfg.SUPABASE_ANON_KEY.includes("YOUR_");
 
@@ -78,7 +80,7 @@ function setupPersianDigits(){
   persianizeNode(document.body);
 }
 const state = {
-  sb: configured ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null,
+  sb: configured ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {db:{schema:dbSchema}}) : null,
   session:null, profile:null, route:"dashboard",
   profiles:[], grades:[], classes:[], subjects:[], assignments:[], classStudents:[], representatives:[],
   refsLoadedAt:0, refsPromise:null, pageCache:new Map()
@@ -102,7 +104,7 @@ async function uploadAssignmentFile(path,file,onProgress=()=>{}){
   if(!session?.access_token)throw new Error("نشست کاربری معتبر نیست.");
 
   const safePath=path.split("/").map(encodeURIComponent).join("/");
-  const url=`${cfg.SUPABASE_URL.replace(/\/$/,"")}/storage/v1/object/assignment-files/${safePath}`;
+  const url=`${cfg.SUPABASE_URL.replace(/\/$/,"")}/storage/v1/object/${encodeURIComponent(assignmentBucket)}/${safePath}`;
 
   await new Promise((resolve,reject)=>{
     const xhr=new XMLHttpRequest();
@@ -456,7 +458,7 @@ function showLogin(){
   $("#oauthView")?.classList.add("hidden");
   $("#loginView").classList.remove("hidden");
 }
-function refsStorageKey(){return state.session?.user?.id?`school-refs-v7:${state.session.user.id}`:null;}
+function refsStorageKey(){return state.session?.user?.id?`school-refs-v7:${cfg.SUPABASE_URL.replace(/\/$/,"")}:${dbSchema}:${state.session.user.id}`:null;}
 function applyRefBundle(data){
   if(!data||typeof data!=="object")return false;
   const keys=["profiles","grades","classes","subjects","assignments","classStudents","representatives"];
@@ -639,14 +641,14 @@ async function renderDashboard(){
 }
 
 async function renderUsers(){
-  setPage("مدیریت کاربران","افزودن، ویرایش، حذف و تغییر رمز معلمان و دانش‌آموزان");
+  setPage("مدیریت کاربران",cfg.SUPABASE_DB_SCHEMA&&cfg.SUPABASE_DB_SCHEMA!=="public"?"افزودن، ویرایش، قطع دسترسی و تغییر رمز معلمان و دانش‌آموزان":"افزودن، ویرایش، حذف و تغییر رمز معلمان و دانش‌آموزان");
   await refreshRefs();
   const users=state.profiles.filter(x=>x.role!=="manager");
   $("#content").innerHTML=`<div class="card"><div class="panel-head"><div><h3>کاربران</h3><p class="muted">در زمان ساخت، نام کاربری و رمز اولیه هر دو کد ملی هستند.</p></div>
   <button class="btn btn-primary" id="addUser">+ کاربر جدید</button></div><br>
   ${table(["نام","کد ملی","نقش","وضعیت","عملیات"],users.map(u=>`<tr><td>${esc(u.full_name)}</td><td>${esc(u.national_id)}</td><td>${roleBadge(u.role)}</td>
   <td>${u.active?'<span class="badge">فعال</span>':'<span class="badge danger">غیرفعال</span>'}</td>
-  <td><div class="actions"><button class="btn btn-ghost edit-user" data-id="${u.id}">ویرایش</button><button class="btn btn-ghost danger del-user" data-id="${u.id}">حذف</button></div></td></tr>`))}</div>`;
+  <td><div class="actions"><button class="btn btn-ghost edit-user" data-id="${u.id}">ویرایش</button><button class="btn btn-ghost danger del-user" data-id="${u.id}">${cfg.SUPABASE_DB_SCHEMA&&cfg.SUPABASE_DB_SCHEMA!=="public"?"قطع دسترسی":"حذف"}</button></div></td></tr>`))}</div>`;
   $("#addUser").onclick=()=>userModal();
   document.querySelectorAll(".edit-user").forEach(b=>b.onclick=()=>userModal(byId(users,b.dataset.id)));
   document.querySelectorAll(".del-user").forEach(b=>b.onclick=()=>deleteUser(b.dataset.id));
@@ -665,10 +667,11 @@ function userModal(u=null){
   });
 }
 async function deleteUser(id){
-  if(!confirm("این کاربر و داده‌های وابسته حذف شود؟"))return;
+  const schoolAccess=cfg.SUPABASE_DB_SCHEMA&&cfg.SUPABASE_DB_SCHEMA!=="public";
+  if(!confirm(schoolAccess?"دسترسی این کاربر به سامانه قطع شود؟ تاریخچه و حساب او در برنامه‌های دیگر حفظ می‌شود.":"این کاربر و داده‌های وابسته حذف شود؟"))return;
   try{
     await invokeFunction("admin-user",{action:"delete",user_id:id});
-    toast("کاربر حذف شد.");await refreshRefs(true);renderUsers();
+    toast(schoolAccess?"دسترسی کاربر قطع شد.":"کاربر حذف شد.");await refreshRefs(true);renderUsers();
   }catch(e){toast(errText(e),true);}
 }
 
@@ -1217,7 +1220,7 @@ function openStudentSubmission(task,existing){
       });
 
       if(error){
-        await state.sb.storage.from("assignment-files").remove([uploaded.path]);
+        await state.sb.storage.from(assignmentBucket).remove([uploaded.path]);
         uploaded=null;
         setUploadState("error","ارسال ثبت نشد؛ فایل موقت حذف شد. دوباره تلاش کنید.");
         $("#modalSubmit").disabled=true;
@@ -1225,7 +1228,7 @@ function openStudentSubmission(task,existing){
       }
 
       if(existing?.file_path && existing.file_path!==uploaded.path){
-        await state.sb.storage.from("assignment-files").remove([existing.file_path]);
+        await state.sb.storage.from(assignmentBucket).remove([existing.file_path]);
       }
       clearPageCache("homework:");
       toast(existing?"تکلیف اصلاح‌شده ارسال شد.":"تکلیف با موفقیت ارسال شد.");
@@ -1310,7 +1313,7 @@ function openStudentSubmission(task,existing){
     setUploadState("uploading","فایل در حال انتقال به سامانه است…");
 
     if(uploaded?.path){
-      await state.sb.storage.from("assignment-files").remove([uploaded.path]);
+      await state.sb.storage.from(assignmentBucket).remove([uploaded.path]);
       uploaded=null;
     }
 
@@ -1341,7 +1344,7 @@ function openStudentSubmission(task,existing){
 }
 
 async function openStoredFile(path){
-  const {data,error}=await state.sb.storage.from("assignment-files").createSignedUrl(path,120);
+  const {data,error}=await state.sb.storage.from(assignmentBucket).createSignedUrl(path,120);
   if(error)return toast(errText(error),true);
   window.open(data.signedUrl,"_blank","noopener");
 }

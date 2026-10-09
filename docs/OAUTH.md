@@ -12,22 +12,28 @@
 
 یک Edge Function به نام `oauth-connector` رابط OAuth-compatible Authorization Code را فراهم می‌کند و از Supabase Auth موجود برای هویت و TOTP استفاده می‌کند. هیچ رمز، OTP یا TOTP secret به ChatGPT ارسال نمی‌شود. نقش، User ID، Session ID و زمان MFA از ورودی Client گرفته نمی‌شوند؛ تابع ابتدا JWT دقیق را از `/auth/v1/user` اعتبارسنجی می‌کند و سپس Claimهای معتبر آن را می‌خواند. JWT صادرشده برای OAuth بومی Supabase نمی‌تواند برای تصمیم Consent یا مدیریت اتصال استفاده شود.
 
-دیتابیس مالک تراکنش‌ها، Consent، هش کدها/توکن‌ها و revocation است. جدول‌های `system_oauth` خصوصی، با RLS و بدون مجوز مستقیم حتی برای `service_role` هستند. فقط دو RPC صریح `oauth_operation` و `oauth_api` برای Edge service client مجوز اجرا دارند؛ کاربران عادی حتی با JWT معتبر نمی‌توانند RPC را اجرا کنند. این RPCها مرز مورداعتمادند و باید فقط پس از اعتبارسنجی HTTP/Auth فراخوانی شوند؛ service key هرگز در مرورگر نیست.
+دیتابیس مالک تراکنش‌ها، Consent، هش کدها/توکن‌ها و revocation است. در نصب اصلی، جدول‌های `system_oauth` خصوصی، با RLS و بدون مجوز مستقیم حتی برای `service_role` هستند. فقط دو RPC صریح `oauth_operation` و `oauth_api` برای Edge service client مجوز اجرا دارند؛ کاربران عادی حتی با JWT معتبر نمی‌توانند RPC را اجرا کنند. این RPCها مرز مورداعتمادند و باید فقط پس از اعتبارسنجی HTTP/Auth فراخوانی شوند؛ service key هرگز در مرورگر نیست.
+
+برای مقصد مشترک `pukanizbahswrupscfmg`، مدرسه در `school` و داده‌های خصوصی در `school_private` و `school_oauth` نصب می‌شوند تا جدول‌های سرویس آزمون موجود در `public` تداخل نداشته باشند. هویت و MFA همان Supabase Auth پروژه است. مسیر نصب و انتقال واقعی کاربران در [MIGRATION.md](MIGRATION.md) آمده است؛ نصب schema به‌تنهایی انتقال داده یا تغییر اتصال سایت نیست.
 
 ### Files added / modified
 
 | وضعیت | فایل‌ها | کاربرد |
 | --- | --- | --- |
-| جدید | `.env.example`، `supabase/config.toml` | Placeholder تنظیمات و استثنای gateway فقط برای تابع OAuth |
+| جدید | `.env.example`، `supabase/config.toml` | Placeholder تنظیمات و gateway برای سه تابع با اعتبارسنجی صریح Auth |
 | جدید | `supabase/functions/oauth-connector/index.ts`، `handler.ts` | ورود Deno و مرز HTTP/Auth استاندارد |
 | جدید | `supabase/migrations/20261007_oauth_connector.sql` | Schema خصوصی، RPCها، audit، revocation trigger و cleanup |
+| جدید | `supabase/migrations/20261009_manager_session_guard.sql` | کنترل Session و عامل TOTP جاری مدیر، با RPC فقط برای service |
+| جدید | `supabase/install-school.mjs`، `docs/MIGRATION.md` | تولید نصب تراکنشی schema مستقل و راهنمای انتقال مقصد مشترک |
+| جدید | `tests/schema-isolation.mjs`، `tests/admin-user.mjs` | جداسازی PostgreSQL/Storage و مرز مدیریت کاربران مشترک |
 | جدید | `js/oauth.js` | Consent، callback و برنامه‌های متصل با UI موجود |
 | جدید | `docs/OAUTH.md`، `docs/chatgpt-openapi.yaml` | راهنمای اجرا/امنیت و schema GPT Actions |
 | جدید | `tests/oauth-database.mjs`، `oauth-edge.mjs`، `oauth-integration.mjs` | چرخهٔ SQL، مرز HTTP و Handler→SQL واقعی |
 | جدید | `tests/oauth-ui.mjs`، `oauth-browser.mjs` | تعامل Consent/Disconnect و Chromium |
 | جدید | `tests/oauth-concurrency.mjs`، `auth-live.mjs` | رقابت PostgreSQL و Password/TOTP واقعی GoTrue |
 | تغییر | `app.js`، `index.html`، `js/auth.js`، `styles-v7.css` | اتصال به ورود موجود، step-up، پاک‌کردن MFA، Consent، لینک اتصال و رفع overflow موبایل |
-| تغییر | `tests/database-setup.mjs`، `fixtures.mjs`، `syntax.mjs` | Fixture metadata Auth و بررسی تمام Edge Functionها |
+| تغییر | `supabase/functions/admin-user/index.ts`، `account-security/index.ts` | schema معتبر سرور، MFA جاری و مرز عضویت کاربر مدرسه |
+| تغییر | `tests/database-setup.mjs`، `fixtures.mjs`، `syntax.mjs`، `migrations-check.mjs` | Fixture metadata Auth، ترتیب Migration و بررسی تمام Edge Functionها |
 | تغییر | `tests/xlsx.mjs`، `browser.mjs` | منبع جایگزین ثابت و تأیید اصالت Excel، fixture برنامهٔ واقعی |
 | تغییر | `package.json`، `.gitignore`، `README.md` | دستورهای تست، حفاظت فایل env و راهنمای استفاده |
 
@@ -49,6 +55,8 @@
 8. Client کد را با احراز هویت خودش و در صورت نیاز PKCE تبدیل به Access/Refresh Token می‌کند. Plugin فقط این توکن‌ها را نگه می‌دارد.
 
 Supabase مسئول حفاظت TOTP secret، بررسی OTP، challenge expiration، عامل تأییدشده و Auditهای Enrollment/Success/Failure است؛ جدول TOTP یا Recovery Code موازی ساخته نشده است. Supabase Recovery Codes بومی این مسیر را فراهم نمی‌کند؛ recovery مدیر باید از رویهٔ امن و ثبت‌شدهٔ Supabase/عملیات مدرسه انجام شود، نه bypass OAuth.
+
+مسیرهای موجود `admin-user` و `account-security` نیز پس از اعتبارسنجی JWT اصلی از Auth، RPC فقط-service به نام `assert_manager_session` را اجرا می‌کنند. این RPC فعال‌بودن مدیر، وضعیت ban/deletion، Session جاری AAL2 و عامل TOTP تأییدشدهٔ دقیق همان Session را از دیتابیس بررسی می‌کند؛ عامل حذف‌شده، Session منقضی/حذف‌شده یا downgrade و خطای بررسی، عملیات مدیریتی را متوقف می‌کند. سیاست این عملیات همان Session معتبر AAL2 موجود است؛ مهلت ۱۰ دقیقه‌ای step-up مخصوص اتصال و مدیریت OAuth است. تغییر رمز اولیهٔ خود مدیر پس از MFA معتبر مجاز می‌ماند؛ سایر عملیات مدیریت همچنان رمز تغییرکرده می‌خواهند.
 
 در Auth خودمیزبان، رمزنگاری بومی دیتابیس GoTrue را با `GOTRUE_SECURITY_DB_ENCRYPTION_ENCRYPT` و کلیدهای `GOTRUE_SECURITY_DB_ENCRYPTION_*` نسخهٔ مستقر فعال و گردش/Backup کلیدها را مدیریت کنید؛ مقدار کلید فقط در Secret Store سرور باشد. تست Auth این تغییر رمزنگاری بومی TOTP را فعال و ciphertext را بررسی می‌کند. در Supabase میزبانی‌شده تنظیم و حفاظت این ذخیره‌سازی مسئولیت سرویس Auth است؛ این افزونه هیچ TOTP secret را دریافت یا در schema OAuth ذخیره نمی‌کند.
 
@@ -106,7 +114,7 @@ RPC منبع با service boundary اجرا می‌شود، بنابراین ن�
 
 Audit جدید فقط Event، شناسهٔ داخلی، Client و Scope را ثبت می‌کند؛ Password، state، code، token، hash token، client secret، OTP و TOTP secret وارد Audit نمی‌شوند. رویدادهای امنیتی `OAUTH_*` در Audit فعلی مدیر قابل مشاهده‌اند. نگه‌داری و cleanup دوره‌ای اطلاعات خصوصی در migration مستند شده است.
 
-اگر `pg_cron` از قبل نصب باشد migration کار ساعتی cleanup را ثبت می‌کند. در غیر این صورت scheduler مورداعتماد باید `select public.oauth_cleanup();` را با نقش مالک دیتابیس یا service اجرا کند. این RPC برای `anon` و `authenticated` مجاز نیست. tombstoneهای refresh مصرف‌شده تا پایان مهلت خانواده حفظ می‌شوند تا cleanup تشخیص reuse را دور نزند؛ نگه‌داری Audit تابع سیاست موجود مدرسه است.
+اگر `pg_cron` از قبل نصب باشد migration کار ساعتی cleanup را ثبت می‌کند. در غیر این صورت scheduler مورداعتماد باید `select public.oauth_cleanup();` را برای نصب اصلی یا `select school.oauth_cleanup();` را برای نصب مستقل با نقش مالک دیتابیس یا service اجرا کند. این RPC برای `anon` و `authenticated` مجاز نیست. tombstoneهای refresh مصرف‌شده تا پایان مهلت خانواده حفظ می‌شوند تا cleanup تشخیص reuse را دور نزند؛ نگه‌داری Audit تابع سیاست موجود مدرسه است.
 
 ## Client registration / ChatGPT connection
 
@@ -150,54 +158,60 @@ CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium npm run test:browser
 CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium npm run test:oauth:browser
 npm run test:oauth:concurrency
 npm run test:auth:live
+npm run test:schema
 DENO_DIR=/tmp/system-deno-cache XDG_CACHE_HOME=/tmp/system-deno-cache npm exec --cache /tmp/system-npm-cache --yes --package=deno@2.9.6 -- deno check supabase/functions/oauth-connector/index.ts
 ```
 
-دو تست آخر npm به Docker محلی نیاز دارند؛ فقط کانتینرهای آزمایشی متعلق به همان اجرا را ایجاد/پاک می‌کنند. تست هم‌زمانی اتصال‌های جدا به PostgreSQL واقعی دارد. تست Auth از تصویر رسمی و pinned GoTrue برای Password و TOTP واقعی استفاده می‌کند؛ production handler به PostgreSQL آزمایشی PGlite متصل است و فقط metadata واقعی Session/Factor، بدون MFA secret، برای کنترل SQL منتقل می‌شود. این تست جایگزین آزمون GPT Client مستقر نیست. تست Browser OAuth پاسخ HTTP/Auth آزمایشی دارد؛ تست Browser اصلی نیز پروژهٔ Supabase واقعی را مسدود می‌کند.
+تست‌های `test:oauth:concurrency` و `test:auth:live` به Docker محلی نیاز دارند؛ فقط کانتینرهای آزمایشی متعلق به همان اجرا را ایجاد/پاک می‌کنند. تست هم‌زمانی اتصال‌های جدا به PostgreSQL واقعی دارد. تست Auth از تصویر رسمی و pinned GoTrue برای Password و TOTP واقعی استفاده می‌کند؛ production handler به PostgreSQL آزمایشی PGlite متصل است و فقط metadata واقعی Session/Factor، بدون MFA secret، برای کنترل SQL منتقل می‌شود. این تست جایگزین آزمون GPT Client مستقر نیست. تست Browser OAuth پاسخ HTTP/Auth آزمایشی دارد؛ تست Browser اصلی نیز پروژهٔ Supabase واقعی را مسدود می‌کند. تست schema نصب مستقل را روی PGlite اجرا می‌کند و به مقصد تولید متصل نمی‌شود.
 
 تست Excel فایل SheetJS 0.20.3 را از `cdn.jsdelivr.net` با SHA-256 ثابت `cc015130aa8521e7f088f88898eba949ccdcbfb38df0bd129b44b7273c3a6f41` دریافت می‌کند؛ این bytes با CDN رسمی و tag رسمی `v0.20.3` در `git.sheetjs.com` تطبیق داده شدند. Cache و override هم پیش از اجرا بررسی می‌شوند. TLS و نسخهٔ کتابخانه تغییر نکرده‌اند.
 
-### نتیجهٔ اعتبارسنجی این تغییر — ۲۰۲۶-۱۰-۰۸
+### نتیجهٔ اعتبارسنجی این تغییر — ۲۰۲۶-۱۰-۰۹
 
 | بررسی | نتیجه |
 | --- | --- |
-| `npm test` | Migrationهای قدیمی و تست واحد موفق؛ ۶۳ DB امنیت، ۹ مرز امنیت حساب، ۷۳ UI موجود، ۴۲ DB OAuth، ۱۰۳ مرز HTTP OAuth، ۲۶ HTTP+SQL و ۴۲ تعامل UI OAuth موفق؛ ۲۳ مورد جدید ثبت Client مدیر، تغییر حساب پیش از MFA/Consent و حفاظت اطلاعات آن را پوشش می‌دهند |
+| Type check تابع‌های Edge | هر سه تابع با Deno 2.9.6 و typeهای SDK رسمی `@supabase/supabase-js@2.117.3` بررسی شدند؛ import map موقت برای SDK از npm استفاده شد و importهای مخزن تغییر نکردند |
+| `npm test` | Migrationها و تست واحد موفق؛ ۶۳ DB امنیت، ۲۲ مرز امنیت حساب، ۳۲ مرز مدیریت کاربران، ۷۳ UI موجود و ۴۰ جداسازی schema موفق؛ OAuth شامل ۴۲ DB، ۱۱۱ مرز HTTP، ۲۶ HTTP+SQL و ۴۲ UI، مجموعاً ۲۲۱ بررسی موفق |
+| جداسازی مدرسه | حفظ داده/Policy/تابع برنامهٔ موجود، schema و pgcrypto، RLS و مجوز Storage، تخصیص فعلی دبیر، قطع دسترسی کاربر دارای سابقه و لغو توکن، مرز Session/MFA مدیر |
 | PostgreSQL با اتصال‌های هم‌زمان واقعی | ۲۶ سناریو موفق؛ single-use، rotation/reuse، Consent/Disconnect، تغییر سیاست، انقضا پس از قفل، cleanup و ترتیب قفل MFA بومی |
 | GoTrue واقعی محلی | ۱۸ سناریو موفق؛ رمز صحیح/غلط، ban، Enrollment، OTP صحیح/غلط، Session موجود، ثبت Client مدیر، PKCE، refresh، Disconnect، JWT قدیمی پس از حذف عامل و Logout |
 | Chromium اصلی / OAuth | ۵۶ / ۶ بررسی موفق؛ دسکتاپ، موبایل RTL، Consent، deny، قطع اتصال، ثبت Client مدیر پس از MFA، پاک‌کردن Secret، PDF و Excel |
 | Excel با منبع جایگزین | ساخت/بازخوانی فایل واقعی، فارسی، RTL، صفر عددی و کد ملی رشته‌ای موفق |
 | Syntax / Deno type check / whitespace | موفق؛ frontend مرحلهٔ build مستقل ندارد |
 | OpenAPI | YAML و ۴ operation خواندن، scopeها و تمام referenceهای داخلی بررسی شدند |
+| HTTP واقعی مقصد مستقر | ۲۱ بررسی رد درخواست نامعتبر/توکن نامعتبر، APIهای محافظت‌شده، Origin/CORS و Headerها، schema خصوصی و RPC فقط-service موفق؛ بدون ورود کاربر واقعی یا callback ChatGPT |
 
-هیچ migration، deploy، حساب یا Client واقعی روی Supabase تولید/ChatGPT در این اعتبارسنجی ایجاد نشد. تصویر رسمی GoTrue و PostgreSQL محلی با digest ثابت استفاده شدند و منابع Docker متعلق به تست پاک شدند. باقی‌ماندهٔ پذیرش انتشار، آزمون Client واقعی با callback و تنظیمات استقرار است.
+این suiteها حساب، داده یا Client واقعی تولید/ChatGPT نمی‌سازند. تصویر رسمی GoTrue و PostgreSQL محلی با digest ثابت استفاده شدند و منابع Docker متعلق به تست پاک شدند. نصب و استقرار مقصد از اجرای این آزمون‌ها جداست؛ وضعیت انتقال و شروط انتشار در [MIGRATION.md](MIGRATION.md) ثبت شده است. پذیرش نهایی به آزمون Client واقعی، callback ثبت‌شده و حساب‌های آمادهٔ مقصد نیاز دارد.
 
 ### ابزار استقرار در محیط ابری
 
-CLI رسمی Supabase نسخهٔ ثابت `2.120.0` با مسیر state قابل‌نوشتن کار می‌کند؛ `HOME` سیستم تغییر نمی‌کند:
+نسخه و help ابزار رسمی Supabase `2.120.0` با مسیر state قابل‌نوشتن بررسی شده‌اند؛ `HOME` سیستم تغییر نمی‌کند:
 
 ```bash
 SUPABASE_HOME=/tmp/system-supabase-cli-state SUPABASE_TELEMETRY_DISABLED=1 SUPABASE_NO_KEYRING=1 npm exec --cache /tmp/system-npm-cache --yes --package=supabase@2.120.0 -- supabase --version
 ```
 
+در این محیط، مقدار محلی Credential واسط را CLI هنگام بررسی قالب رد می‌کند، در حالی که درخواست احراز‌شدهٔ HTTPS به Management API رسمی مجاز است. استقرار مقصد با endpoint رسمی multipart همان Management API انجام شد؛ این تفاوت، نشانهٔ نامعتبر بودن دسترسی مدیریتی یا نیاز به فرستادن توکن در چت نیست. وضعیت تابع‌های مستقر در [MIGRATION.md](MIGRATION.md) آمده است.
+
 برای استقرار، `SUPABASE_ACCESS_TOKEN` مدیریتی را فقط در Secrets محیط با مقصد `api.supabase.com` فراهم کنید. public key سایت برای migration یا deploy کافی نیست. دسترسی شبکه به `api.github.com` برای PR، `api.supabase.com` برای مدیریت، دامنهٔ پروژه برای سلامت تابع و دامنهٔ سایت برای کنترل انتشار لازم است. پیش از اعمال migration، schema واقعی مقصد و پیش‌نیازهای v7 و نبود schema OAuth قبلی را بررسی کنید؛ migration یک‌بار اجرا می‌شود. نسخه و help ابزار تأیید شده‌اند؛ داشتن CLI یا انتشار محیط به معنی اجراشدن migration/deploy تولید نیست.
 
 توکن مدیریتی محدودشده باید برای پروژهٔ مقصد مجوزهای `project_admin_read`، `database_read`/`database_write`، `edge_functions_read`/`edge_functions_write` و `edge_functions_secrets_read`/`edge_functions_secrets_write` داشته باشد. این نام‌ها از [OpenAPI رسمی Management API](https://api.supabase.com/api/v1-json) قابل بررسی‌اند. حضور متغیر در محیط کافی نیست؛ پاسخ `403` با نام مجوزِ مفقود، نیازمند اصلاح دسترسی همان توکن است. برای این استقرار مجوز حذف پروژه، مدیریت کلیدهای API یا دسترسی به همهٔ پروژه‌ها لازم نیست.
 
-روی دیتابیس v7 موجود فقط `supabase/migrations/20261007_oauth_connector.sql` را بعد از چهار migration نسخهٔ ۷ اجرا کنید. Schema و migrationهای قدیمی را دوباره اجرا نکنید. ابتدا Backup و Staging؛ هیچ migration تولید در این کار اجرا نشده است. migration جدید transaction دارد و جدول قدیمی را بازسازی/حذف نمی‌کند. تغییر امنیتی Auth/Profile trigger و service-only RPCها را در staging بررسی کنید. این migration یک‌بار اجرا می‌شود، اجرای دوبارهٔ آن روش upgrade نیست.
+برای دیتابیس v7 موجود در نصب اصلی، `supabase/migrations/20261007_oauth_connector.sql` و سپس `supabase/migrations/20261009_manager_session_guard.sql` را بعد از چهار migration نسخهٔ ۷ اجرا کنید. اگر OAuth قبلاً نصب شده است، فقط Migration امنیتی جدید باقی می‌ماند. Schema و migrationهای قدیمی را دوباره اجرا نکنید. ابتدا Backup و Staging؛ این migrationها transaction دارند و جدول قدیمی را بازسازی/حذف نمی‌کنند. تغییر امنیتی Auth/Profile trigger و service-only RPCها را در staging بررسی کنید. اجرای دوبارهٔ OAuth روش upgrade نیست. برای پروژهٔ مشترکِ دارای سرویس آزمون، به‌جای نصب مستقیم روی `public` از نصب‌کنندهٔ [MIGRATION.md](MIGRATION.md) استفاده کنید.
 
 برای Edge Functions، `.env.example` فقط placeholder دارد. فایل واقعی `.env` ignored است و باید خارج از Git، با دسترسی محدود نگه‌داری شود. `supabase functions serve oauth-connector --no-verify-jwt --env-file PATH_TO_LOCAL_ENV` در محیط Supabase محلی؛ برای localhost فقط `OAUTH_ALLOW_LOCAL_HTTP=true` و Client callback محلی دقیق مجاز است. frontend هم config عمومی همان پروژهٔ آزمایشی را لازم دارد؛ service key هرگز در `config.js` قرار نمی‌گیرد.
 
 ## Production configuration required
 
 1. Backup و اجرای migration جدید روی Staging و سپس پروژهٔ موردنظر با نقش مالک دیتابیس.
-2. `SUPABASE_URL` و کلید public و service در Edge runtime موجود باشند؛ در Supabase میزبانی‌شده این مقدارها معمولاً از runtime فراهم می‌شوند و لازم نیست Secret رزروشده با پیشوند `SUPABASE_` دوباره ثبت شود. متغیرهای modern `SUPABASE_PUBLISHABLE_KEYS`/`SUPABASE_SECRET_KEYS` JSON هم پشتیبانی می‌شوند. URL و public key همان پروژه در config عمومی سایت مجازند؛ service key هیچ‌گاه در Git/ChatGPT/Browser نباشد. فقط متغیرهای سفارشی `OAUTH_*` را برای تابع پیکربندی کنید؛ `.env.example` فایل placeholder محیط محلی است و نباید بدون جایگزینی مقدارها به تولید ارسال شود.
+2. `SUPABASE_URL` و کلید public و service در Edge runtime موجود باشند؛ در Supabase میزبانی‌شده این مقدارها معمولاً از runtime فراهم می‌شوند و لازم نیست Secret رزروشده با پیشوند `SUPABASE_` دوباره ثبت شود. متغیرهای modern `SUPABASE_PUBLISHABLE_KEYS`/`SUPABASE_SECRET_KEYS` JSON هم پشتیبانی می‌شوند. URL و public key همان پروژه در config عمومی سایت مجازند؛ service key هیچ‌گاه در Git/ChatGPT/Browser نباشد. متغیرهای سفارشی `SYSTEM_DB_SCHEMA` و `OAUTH_*` را پیکربندی کنید؛ `.env.example` فایل placeholder محیط محلی است و نباید بدون جایگزینی مقدارها به تولید ارسال شود. `SYSTEM_DB_SCHEMA` پیش‌فرض `public` و در مقصد مشترک `school` است؛ مقدار آن تنها تنظیم مورداعتماد سرور است و از Client دریافت نمی‌شود. نام نامعتبر باعث توقف درخواست می‌شود. تنها schema عمومی مدرسه در Data API expose شود؛ namespaceهای خصوصی هرگز expose نشوند.
 3. `OAUTH_SITE_URL` آدرس کامل HTTPS صفحهٔ اصلی واقعی، بدون Query/Fragment؛ `OAUTH_ALLOWED_ORIGINS` فهرست Originهای HTTPS دقیق با کاما و بدون path، wildcard یا slash آخر. `OAUTH_ALLOW_LOCAL_HTTP=false`.
-4. استقرار تابع با `supabase functions deploy oauth-connector --no-verify-jwt`؛ این gateway exception فقط تابع جدید را پوشش می‌دهد. خود تابع JWT سایت و opaque token را مستقل بررسی می‌کند. `admin-user` و `account-security` فعلی همچنان مستقر باشند.
-5. انتشار فایل‌های frontend و تنظیم Client/callback/secret امن ChatGPT. حساب مدیر MFA موجود را تکمیل کند. Rate limit ورود و MFA را در تنظیمات Supabase Auth فعال/بررسی کنید؛ Endpointهای جدید محدودسازی مشترک دیتابیس و User/Client/Token دارند. محدودسازی لبهٔ شبکه نیز برای حملهٔ حجمی مناسب است.
+4. هر سه تابع `oauth-connector`، `admin-user` و `account-security` با `--no-verify-jwt --project-ref YOUR_PROJECT_REF` و تنظیم متناظر `supabase/config.toml` مستقر شوند. هر تابع JWT دقیق کاربر را در Supabase Auth اعتبارسنجی می‌کند؛ OAuth مسیرهای token/code عمومی و Bearer opaque را هم با مرز مستقل خود دارد. این تنظیم با کلید Publishable جدید سازگار است و کنترل هویت/مجوز را حذف نمی‌کند. تابع موجود `exam-api` و تنظیمات آن در مقصد مشترک تغییر نکنند؛ `--prune` استفاده نشود.
+5. پس از آماده‌شدن کاربران/داده و پذیرش مقصد، URL و public key همان پروژه را در frontend تنظیم و رابط منتشر کنید. در مقصد مشترک `SUPABASE_DB_SCHEMA: "school"` و `ASSIGNMENT_BUCKET: "school-assignment-files"` لازم‌اند؛ نبود این دو تنظیم، رفتار نصب اصلی `public` و `assignment-files` را حفظ می‌کند. Client/callback/secret امن ChatGPT تنظیم و حساب مدیر MFA موجود را تکمیل کند. Rate limit ورود و MFA را در تنظیمات Supabase Auth فعال/بررسی کنید؛ Endpointهای جدید محدودسازی مشترک دیتابیس و User/Client/Token دارند. محدودسازی لبهٔ شبکه نیز برای حملهٔ حجمی مناسب است.
 6. HTTPS و Headerهای سایت روی میزبان دارای Header control: `X-Content-Type-Options: nosniff`، `Referrer-Policy: no-referrer`، `Content-Security-Policy` با `frame-ancestors 'none'` و sourceهای دقیق موردنیاز. CSP باید CDN SDK، فونت، SheetJS و اتصال پروژه Supabase فعلی را لحاظ کند؛ `default-src *` نسازید. GitHub Pages تنظیم Header سفارشی فراهم نمی‌کند؛ برای حفاظت صفحهٔ Consent/MFA از clickjacking از میزبان/Reverse Proxy مناسب استفاده کنید. meta CSP جایگزین frame-ancestors نیست.
 7. Session سایت فعلی SDK/localStorage است؛ flags Cookie در این برنامه وجود ندارد. در صورت انتقال به SSR/cookie در آینده Secure/HttpOnly/SameSite و CSRF فرم لازم‌اند. Session JWT و refresh سایت را در URL یا log نگذارید.
 8. نرخ/اندازهٔ Audit و جدول‌های OAuth را پایش و cleanup مقرر را زمان‌بندی کنید. raw headers/body توکن‌ها را در gateway/proxy و telemetry ثبت نکنید. Source و Token را در Error Monitoring redaction کنید.
-9. تست end-to-end واقعی دانش‌آموز، دبیر، مدیر، Session قبلی، deny، refresh و Disconnect با ChatGPT و Supabase آزمایشی اجرا شود؛ callback/client registration و سرویس تولید در این task ایجاد نشده‌اند.
+9. تست end-to-end واقعی دانش‌آموز، دبیر، مدیر، Session قبلی، deny، refresh و Disconnect با ChatGPT و Supabase آزمایشی اجرا شود. callback و Client واقعی باید از GPT Builder و رابط مدیر همان استقرار آماده شوند؛ تست‌های محلی تأیید اتصال واقعی نیستند.
 
 ## Security concerns already present
 

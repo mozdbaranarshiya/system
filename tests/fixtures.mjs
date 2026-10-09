@@ -22,7 +22,7 @@ export async function seed(db){
   await db.query("insert into assignments(id,teacher_id,class_id,subject_id,title,due_at) values($1,$2,$3,$4,'تکلیف قدیمی',now()+interval '6 hours')",[uuid(42),ids.teacher,ids.class,ids.subject]);
   await db.query("insert into announcements(id,created_by,title,body,target_type,target_class_id) values($1,$2,'اطلاعیه قدیمی','متن قدیمی','class',$3)",[uuid(43),ids.teacher,ids.class]);
 }
-export async function migrate(db){for(const file of (await readdir('supabase/migrations')).filter(f=>f.startsWith('20261002_')).sort())await db.exec(await readFile('supabase/migrations/'+file,'utf8'));}
+export async function migrate(db){for(const file of (await readdir('supabase/migrations')).filter(f=>f.startsWith('20261002_')||f==='20261009_manager_session_guard.sql').sort())await db.exec(await readFile('supabase/migrations/'+file,'utf8'));}
 // Mock Auth state for PGlite/HTTP fixture suites. Real Auth tests import current
 // sessions/factors from isolated GoTrue instead of using this helper.
 export async function seedOAuthSessions(db){

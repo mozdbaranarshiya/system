@@ -40,14 +40,18 @@ function harness(options = {}) {
     if (url === base + '/auth/v1/user') {
       calls.push({ name: 'auth', headers: init.headers });
       assert.equal(init.headers.apikey, 'public-test-key');
+      assert.equal(init.headers['Accept-Profile'], undefined);
+      assert.equal(init.headers['Content-Profile'], undefined);
       return new Response(JSON.stringify(options.authUser ?? { id: user }), { status: options.authStatus ?? 200 });
     }
     assert.match(url, /^https:\/\/school\.supabase\.test\/rest\/v1\/rpc\/(oauth_operation|oauth_api)$/);
     assert.equal(init.headers.apikey, 'service-test-key');
     assert.equal(init.headers.Authorization, 'Bearer service-test-key');
+    assert.equal(init.headers['Accept-Profile'], config.SYSTEM_DB_SCHEMA ?? 'public');
+    assert.equal(init.headers['Content-Profile'], config.SYSTEM_DB_SCHEMA ?? 'public');
     const payload = JSON.parse(init.body);
     const name = url.split('/').at(-1);
-    calls.push({ name, ...payload });
+    calls.push({ name, ...payload, headers: init.headers });
     if (options.rpcStatus) return new Response('private database failure detail', {status:options.rpcStatus});
     if (options.rpc) { const result = await options.rpc(name, payload); if (result !== undefined) return new Response(JSON.stringify(result)); }
     if (name === 'oauth_api') return new Response(JSON.stringify({ id: user, display_name: 'Test account' }));
@@ -77,6 +81,25 @@ const callbackError = (result, code, state = defaults.state) => {
 const action = (h, name) => h.calls.find(x => x.p_action === name)?.p_data;
 const browserRequest = (data, overrides = {}) => ({ method:'POST', json:true, data, origin:new URL(site).origin, bearer:jwt(), ...overrides });
 const tokenRequest = (overrides = {}, headers = {}) => ({ method:'POST', data:{ client_id:clientId, client_secret:clientSecret, grant_type:'authorization_code', code, redirect_uri:redirect, code_verifier:verifier, ...overrides }, headers });
+
+await test('configured school schema selects every OAuth RPC without changing Auth requests', async () => {
+  const h=harness({env:{SYSTEM_DB_SCHEMA:'school'}});
+  const result=await h.invoke('/oauth/prepare',browserRequest({...defaults,schema:'public',db_schema:'public',SYSTEM_DB_SCHEMA:'public'}));
+  assert.equal(result.response.status,200);
+  const prepared=action(h,'prepare');
+  assert.equal(prepared.schema,undefined);assert.equal(prepared.db_schema,undefined);assert.equal(prepared.SYSTEM_DB_SCHEMA,undefined);
+  for(const call of h.calls){
+    assert.equal(call.headers['Accept-Profile'],call.name==='auth'?undefined:'school');
+    assert.equal(call.headers['Content-Profile'],call.name==='auth'?undefined:'school');
+  }
+  assert.equal((await h.invoke('/api/me',{bearer:access})).response.status,200);
+  assert.equal(h.calls.find(call=>call.name==='oauth_api').headers['Content-Profile'],'school');
+});
+for(const invalid of ['', 'public,school','"school"','school;select','School','school name','x'.repeat(64)])await test('invalid server schema rejected before HTTP dependencies: '+JSON.stringify(invalid),async()=>{
+  const h=harness({env:{SYSTEM_DB_SCHEMA:invalid}});
+  error(await h.invoke('/oauth/prepare',browserRequest(defaults)),'temporarily_unavailable',503);
+  assert.equal(h.calls.length,0);
+});
 
 await test('valid authorization redirect preserves exact client state and PKCE; no credential forwarded', async () => {
   const h = harness(); const r = await h.invoke('/oauth/authorize', { query:{...defaults,client_secret:'must-not-be-forwarded',password:'never'} });
