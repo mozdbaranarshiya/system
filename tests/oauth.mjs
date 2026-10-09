@@ -10,7 +10,8 @@ const now=Math.floor(Date.now()/1000);
 const makeToken=claims=>[
   Buffer.from('{}').toString('base64url'),
   Buffer.from(JSON.stringify({sub:'test-user',client_id:'chatgpt-id',iss:issuer,
-    iat:now-10,exp:now+600,aal:'aal1',...claims})).toString('base64url'),'signature'
+    iat:now-10,exp:now+600,aal:'aal1',
+    aud:'https://test.invalid/functions/v1/chatgpt-mcp',...claims})).toString('base64url'),'signature'
 ].join('.');
 let count=0;
 async function request(action='me',scenario={},method='GET'){
@@ -54,7 +55,8 @@ async function request(action='me',scenario={},method='GET'){
     Deno:{env:{get:name=>({
       SUPABASE_URL:'https://test.invalid',SUPABASE_ANON_KEY:'public',
       SUPABASE_SERVICE_ROLE_KEY:'service',CHATGPT_OAUTH_CLIENT_ID:'chatgpt-id',
-      CHATGPT_OAUTH_PRIVACY_SAFE:scenario.privacySafe===false?'false':'true'
+      CHATGPT_OAUTH_PRIVACY_SAFE:scenario.privacySafe===false?'false':'true',
+      CHATGPT_RESOURCE_AUDIENCE:'https://test.invalid/functions/v1/chatgpt-mcp'
     })[name]},serve:fn=>handler=fn},
     Request,Response,URL,Date,JSON,Object,String,Number,Set,Promise,
     atob:encoded=>Buffer.from(encoded,'base64').toString('binary')
@@ -76,6 +78,8 @@ await check('Reject missing Bearer','me',{noAuth:true},401);
 await check('Reject another OAuth client','me',{claims:{client_id:'wrong-client'}},401);
 await check('Reject expired access tokens','me',{claims:{exp:now-1}},401);
 await check('Reject tokens from unexpected issuer','me',{claims:{iss:'https://evil.invalid'}},401);
+await check('Reject OAuth token for other audience','me',{claims:{aud:'authenticated'}},401);
+await check('Reject national-ID derived JWT email','me',{claims:{email:'0000000004@school.local'}},401);
 await check('Reject tokens failed by Supabase Auth','me',{invalidAuth:true},401);
 await check('Reject client without grant','me',{missingGrant:true},403);
 await check('Reject revoked grant','me',{grant:{revoked_at:new Date().toISOString()}},403);
