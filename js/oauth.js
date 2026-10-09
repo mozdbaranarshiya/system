@@ -7,7 +7,8 @@ const $=c.$;
 const params=new URLSearchParams(window.location.search);
 const authorizationId=params.get('authorization_id');
 const configuredClient=()=>String(window.APP_CONFIG?.CHATGPT_OAUTH_CLIENT_ID||'');
-const isConfigured=()=>configuredClient()&&!configuredClient().startsWith('SET_');
+const isConfigured=()=>configuredClient()&&!configuredClient().startsWith('SET_')
+  &&window.APP_CONFIG?.CHATGPT_OAUTH_PRIVACY_SAFE===true;
 
 function safeRedirect(target,expected){
   const url=new URL(target);
@@ -33,7 +34,7 @@ async function showConsent(){
   $('#oauthError').classList.add('hidden');
   $('#oauthApprove').disabled=true;
   $('#oauthDeny').disabled=true;
-  if(!isConfigured()){notice('ابتدا شناسه Client ثبت‌شده ChatGPT را در تنظیمات سایت قرار دهید.');return true;}
+  if(!isConfigured()){notice('اتصال ChatGPT تا بازبینی و ایمن‌سازی شناسه‌های هویتی JWT غیرفعال است.');return true;}
   if(!s.profile?.active||s.profile.must_change_password){
     notice('حساب آماده اتصال نیست.');return true;
   }
