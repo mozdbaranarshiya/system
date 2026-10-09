@@ -26,7 +26,7 @@ const json = (status: number, data: unknown) =>
 
 type AccessClaims = {
   sub?: string; client_id?: string; iss?: string; iat?: number;
-  exp?: number; aal?: string;
+  exp?: number; aal?: string; aud?: string | string[]; email?: string;
 };
 function decodeClaims(token: string): AccessClaims {
   const parts = token.split(".");
@@ -48,7 +48,10 @@ Deno.serve(async (request) => {
   try {
     const url = Deno.env.get("SUPABASE_URL")?.replace(/\/$/, "");
     const clientId = Deno.env.get("CHATGPT_OAUTH_CLIENT_ID");
-    if (!url || !clientId || Deno.env.get("CHATGPT_OAUTH_PRIVACY_SAFE") !== "true")
+    const audience = Deno.env.get("CHATGPT_RESOURCE_AUDIENCE");
+    if (!url || !clientId || !audience ||
+        audience !== url + "/functions/v1/chatgpt-mcp" ||
+        Deno.env.get("CHATGPT_OAUTH_PRIVACY_SAFE") !== "true")
       return json(503, { error: "not_configured" });
 
     // Unverified JWT payload is used ONLY as an additional restriction;
@@ -56,6 +59,8 @@ Deno.serve(async (request) => {
     const claims = decodeClaims(bearer[1]);
     const now = Math.floor(Date.now() / 1000);
     if (claims.client_id !== clientId || claims.iss !== url + "/auth/v1"
+      || claims.aud !== audience ||
+      (typeof claims.email === "string" && /[0-9]{10}@school\.local/i.test(claims.email))
       || !Number.isInteger(claims.iat) || !Number.isInteger(claims.exp)
       || claims.iat! > now + 60 || claims.exp! <= now) {
       return json(401, { error: "unauthorized" });
