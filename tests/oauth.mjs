@@ -53,7 +53,8 @@ async function request(action='me',scenario={},method='GET'){
     createClient:(_url,key)=>key==='service'?admin:caller,
     Deno:{env:{get:name=>({
       SUPABASE_URL:'https://test.invalid',SUPABASE_ANON_KEY:'public',
-      SUPABASE_SERVICE_ROLE_KEY:'service',CHATGPT_OAUTH_CLIENT_ID:'chatgpt-id'
+      SUPABASE_SERVICE_ROLE_KEY:'service',CHATGPT_OAUTH_CLIENT_ID:'chatgpt-id',
+      CHATGPT_OAUTH_PRIVACY_SAFE:'true'
     })[name]},serve:fn=>handler=fn},
     Request,Response,URL,Date,JSON,Object,String,Number,Set,Promise,
     atob:encoded=>Buffer.from(encoded,'base64').toString('binary')
