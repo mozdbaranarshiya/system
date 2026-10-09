@@ -1,6 +1,5 @@
 // Stateless, read-only Streamable HTTP MCP endpoint for ChatGPT.
 // Deploy without gateway JWT verification: tool calls are authenticated by chatgpt-api.
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 type Rpc = { jsonrpc?: string; id?: string | number | null; method?: string; params?: unknown };
 const VERSION = "2025-03-26";
