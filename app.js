@@ -4,6 +4,8 @@
 const cfg = window.APP_CONFIG || {};
 const dbSchema = cfg.SUPABASE_DB_SCHEMA || "public";
 const assignmentBucket = cfg.ASSIGNMENT_BUCKET || "assignment-files";
+const authOptions = typeof cfg.SUPABASE_AUTH_STORAGE_KEY === "string" && cfg.SUPABASE_AUTH_STORAGE_KEY
+  ? {auth:{storageKey:cfg.SUPABASE_AUTH_STORAGE_KEY}} : {};
 const configured = cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY &&
   !cfg.SUPABASE_URL.includes("YOUR_PROJECT") && !cfg.SUPABASE_ANON_KEY.includes("YOUR_");
 
@@ -80,7 +82,7 @@ function setupPersianDigits(){
   persianizeNode(document.body);
 }
 const state = {
-  sb: configured ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {db:{schema:dbSchema}}) : null,
+  sb: configured ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {db:{schema:dbSchema},...authOptions}) : null,
   session:null, profile:null, route:"dashboard",
   profiles:[], grades:[], classes:[], subjects:[], assignments:[], classStudents:[], representatives:[],
   refsLoadedAt:0, refsPromise:null, pageCache:new Map()
@@ -380,7 +382,7 @@ function waitForManagerMfa({mode,factorId,qr="",secret="",uri=""}){
     };
 
     logoutBtn.onclick=async()=>{
-      try{await state.sb.auth.signOut()}catch(_){}
+      try{await signOutApp()}catch(_){}
       showLogin();
       finish(false);
     };
@@ -406,7 +408,7 @@ async function resetManagerMfa(){
     if(error)throw error;
   }
   try{await state.sb.auth.refreshSession()}catch(_){}
-  await state.sb.auth.signOut();
+  await signOutApp();
   showLogin();
   toast("اتصال Ente Auth حذف شد. در ورود بعدی QR جدید ساخته می‌شود.");
 }
@@ -447,7 +449,8 @@ async function login(e){
     state.session=data.session; await enterApp();
   }catch(error){toast(errText(error),true)}finally{btn.disabled=false;}
 }
-async function logout(){await state.sb.auth.signOut();showLogin();}
+function signOutApp(){return dbSchema==="public"?state.sb.auth.signOut():state.sb.auth.signOut({scope:"local"});}
+async function logout(){await signOutApp();showLogin();}
 function showLogin(){
   window.SchoolV7?.cleanup?.();
   clearMfaFields();
@@ -501,7 +504,7 @@ function setRoleLabel(){
 
 async function enterApp(){
   const {data,error}=await state.sb.from("profiles").select("*").eq("id",state.session.user.id).single();
-  if(error||!data?.active){await state.sb.auth.signOut();return toast("حساب کاربری فعال نیست.",true);}
+  if(error||!data?.active){await signOutApp();return toast("حساب کاربری فعال نیست.",true);}
   state.profile=data;
 
   if(data.role==="manager"){
@@ -509,7 +512,7 @@ async function enterApp(){
       const verified=await ensureManagerMfa();
       if(!verified)return;
     }catch(e){
-      await state.sb.auth.signOut();
+      await signOutApp();
       showLogin();
       return toast("راه‌اندازی احراز هویت دومرحله‌ای مدیر انجام نشد: "+errText(e),true);
     }

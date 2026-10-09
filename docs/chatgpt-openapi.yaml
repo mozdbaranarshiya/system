@@ -4,7 +4,7 @@ info:
   version: 1.0.0
   description: Read only school data with the connected user's current permissions. The backend enforces scope and resource access on every request.
 servers:
-  - url: https://YOUR_PROJECT_REF.supabase.co/functions/v1/oauth-connector
+  - url: https://pukanizbahswrupscfmg.supabase.co/functions/v1/oauth-connector
 paths:
   /api/me:
     get:
@@ -131,8 +131,8 @@ components:
       type: oauth2
       flows:
         authorizationCode:
-          authorizationUrl: https://YOUR_PROJECT_REF.supabase.co/functions/v1/oauth-connector/oauth/authorize
-          tokenUrl: https://YOUR_PROJECT_REF.supabase.co/functions/v1/oauth-connector/oauth/token
+          authorizationUrl: https://pukanizbahswrupscfmg.supabase.co/functions/v1/oauth-connector/oauth/authorize
+          tokenUrl: https://pukanizbahswrupscfmg.supabase.co/functions/v1/oauth-connector/oauth/token
           scopes:
             profile.read: Read the connected account's name and ID
             classes.read: Read permitted classes

@@ -22,7 +22,7 @@ const appSource=await readFile('app.js','utf8');
 const userId='00000000-0000-4000-8000-000000000004';
 async function configuredApp(settings={},stored={}){
   const dom=new JSDOM(html,{url:'https://school.test/index.html',runScripts:'outside-only',pretendToBeVisual:true});
-  const w=dom.window,storageCalls=[],uploads=[];
+  const w=dom.window,storageCalls=[],uploads=[],signOutCalls=[];
   const profile={id:userId,role:'student',full_name:'کاربر آزمون',active:true};
   const task={id:'task-id',class_id:'class-id',subject_id:'subject-id',title:'تکلیف آزمون',due_at:new Date(Date.now()+3600000).toISOString()};
   const oldFile=userId+'/task-id/old.pdf';
@@ -38,7 +38,11 @@ async function configuredApp(settings={},stored={}){
   const sdk={
     from:table=>new Query(table),
     rpc:async name=>{if(name==='get_app_bootstrap'){bootstrapCalls++;profilesBeforeBootstrap=[...w.SystemCore.state.profiles];return {data:bootstrap};}return {data:true};},
-    auth:{getSession:async()=>({data:{session:{user:{id:userId},access_token:'unit-session'}}}),onAuthStateChange:()=>{}},
+    auth:{
+      getSession:async()=>({data:{session:{user:{id:userId},access_token:'unit-session'}}}),onAuthStateChange:()=>{},
+      signOut:async options=>{signOutCalls.push(options);return {};},
+      mfa:{getAuthenticatorAssuranceLevel:async()=>({data:{currentLevel:'aal1'}}),listFactors:async()=>({data:{totp:[{id:'unit-factor',status:'verified'}]}})}
+    },
     storage:{from:bucket=>({
       createSignedUrl:async file=>{storageCalls.push({bucket,action:'sign',file});return {data:{signedUrl:'https://storage.test/signed'}};},
       remove:async files=>{storageCalls.push({bucket,action:'remove',files});return {};}
@@ -57,17 +61,19 @@ async function configuredApp(settings={},stored={}){
   };
   for(const [key,value] of Object.entries(stored))w.sessionStorage.setItem(key,value);
   w.eval(appSource);await w.SystemCore.init();
-  return {w,dom,storageCalls,uploads,clientOptions,get bootstrapCalls(){return bootstrapCalls;},get profilesBeforeBootstrap(){return profilesBeforeBootstrap;},snapshot:()=>Object.fromEntries(Array.from({length:w.sessionStorage.length},(_,i)=>{const key=w.sessionStorage.key(i);return [key,w.sessionStorage.getItem(key)];}))};
+  return {w,dom,sdk,profile,storageCalls,uploads,signOutCalls,clientOptions,get bootstrapCalls(){return bootstrapCalls;},get profilesBeforeBootstrap(){return profilesBeforeBootstrap;},snapshot:()=>Object.fromEntries(Array.from({length:w.sessionStorage.length},(_,i)=>{const key=w.sessionStorage.key(i);return [key,w.sessionStorage.getItem(key)];}))};
 }
 const localApps=[];
 try{
   const initial=await configuredApp();localApps.push(initial);
   assert.equal(initial.clientOptions.db.schema,'public');
+  assert.equal(Object.hasOwn(initial.clientOptions,'auth'),false,'Legacy configuration must retain the SDK default Auth storage key.');
   assert.equal(initial.bootstrapCalls,1);
   const same=await configuredApp({},initial.snapshot());localApps.push(same);
   assert.equal(same.profilesBeforeBootstrap.length,1,'Same-project/schema cached references should be present during background refresh.');
-  const school=await configuredApp({SUPABASE_DB_SCHEMA:'school',ASSIGNMENT_BUCKET:'school-assignment-files'},initial.snapshot());localApps.push(school);
+  const school=await configuredApp({SUPABASE_DB_SCHEMA:'school',ASSIGNMENT_BUCKET:'school-assignment-files',SUPABASE_AUTH_STORAGE_KEY:'system-school-pukan-auth'},initial.snapshot());localApps.push(school);
   assert.equal(school.clientOptions.db.schema,'school');
+  assert.equal(school.clientOptions.auth.storageKey,'system-school-pukan-auth','Same-origin applications must be able to keep separate Auth persistence/broadcast namespaces.');
   assert.equal(school.bootstrapCalls,1,'A different schema must load fresh references.');
   assert.equal(school.profilesBeforeBootstrap.length,0,'A different schema must not expose cached references while loading.');
   const target=await configuredApp({SUPABASE_URL:'https://target.supabase.test'},initial.snapshot());localApps.push(target);
@@ -87,5 +93,28 @@ try{
     assert.equal(app.storageCalls.filter(call=>call.action==='remove').length,2);
     assert.equal(app.storageCalls.every(call=>call.bucket===bucket),true);
   }
+  // Exercise the actual logout and failed-authentication paths. A second app on
+  // the same native Auth project must keep its independently signed-in session.
+  for(const [app,scope] of [[initial,undefined],[school,'local']]){
+    const previousMfa=app.sdk.auth.mfa;
+    await app.w.SystemCore.logout();
+    assert.equal(app.signOutCalls.at(-1)?.scope,scope,'Ordinary logout should respect isolated-school versus legacy session scope.');
+    assert.equal(app.w.document.querySelector('#loginView').classList.contains('hidden'),false);
+    app.profile.active=false;
+    await app.w.SystemCore.enterApp();
+    assert.equal(app.signOutCalls.at(-1)?.scope,scope,'Rejected school access must not globally sign out another application.');
+    app.profile.active=true;app.profile.role='manager';
+    app.sdk.auth.mfa={getAuthenticatorAssuranceLevel:async()=>({error:new Error('Unavailable MFA context')})};
+    await app.w.SystemCore.enterApp();
+    assert.equal(app.signOutCalls.at(-1)?.scope,scope,'Failed MFA must use the same session boundary.');
+    app.sdk.auth.mfa=previousMfa;app.w.SystemCore.state.profile=app.profile;
+    const pending=app.w.SystemCore.ensureManagerMfa();
+    const cancel=app.w.document.querySelector('#mfaLogout');
+    for(let i=0;i<10&&typeof cancel.onclick!=='function';i++)await new Promise(resolve=>setTimeout(resolve,0));
+    assert.equal(typeof cancel.onclick,'function','The real MFA challenge must expose its cancellation action.');
+    await cancel.onclick();assert.equal(await pending,false);
+    assert.equal(app.signOutCalls.at(-1)?.scope,scope,'Cancelled MFA must not revoke independently signed-in sessions.');
+    assert.equal(app.signOutCalls.length,4,'All four logout paths should execute exactly one SDK sign-out.');
+  }
 }finally{for(const app of localApps)app.dom.window.close();}
-console.log('Unit checks passed: Jalali leap days, report averages, icon sizes, manifest paths, public client configuration, schema/project cache isolation, and configured assignment storage.');
+console.log('Unit checks passed: Jalali leap days, report averages, icon sizes, manifest paths, public client configuration, schema/project cache isolation, configured assignment storage, isolated Auth persistence, and ordinary/rejected/MFA logout scope.');
