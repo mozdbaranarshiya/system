@@ -62,8 +62,8 @@ supabase functions deploy account-security
 1. یک پروژه Supabase بسازید و `supabase/schema.sql` را اجرا کنید؛ این فایل پایه شامل امکانات تا نسخه ۶.۱ و MFA است.
 2. چهار Migration نسخه ۷ را طبق جدول بالا اجرا کنید. Migrationهای قبلی را بعد از آن دوباره اجرا نکنید.
 3. `SUPABASE_URL`، `SUPABASE_ANON_KEY` عمومی و `SCHOOL_NAME` را در `config.js` تنظیم کنید.
-4. هر دو Edge Function را مستقر کنید.
-5. در Authentication → Users یک مدیر با ایمیل `کدملی@school.local` و رمز اولیه بسازید و Auto Confirm را فعال کنید. سپس با UUID واقعی حساب، پروفایل را ایجاد کنید:
+4. Edge Functionهای admin-user و account-security را مستقر کنید. اگر اتصال OAuth/ChatGPT را فعال می‌کنید، ترتیب استقرار school-login و مهاجرت ایمیل‌های Auth در [راهنمای OAuth](docs/chatgpt-oauth.md) الزامی است.
+5. در Authentication → Users مدیر را با **ایمیل غیرهویتی تصادفی** مانند `u-opaque-random-id@school.local` بسازید؛ **هرگز ایمیل مبتنی بر کد ملی نسازید**. رمز اولیهٔ امن تعیین و Auto Confirm را فعال کنید. سپس با UUID واقعی حساب، پروفایل را ایجاد کنید. برای ورود با کد ملی، school-login باید قبلاً مستقر شده باشد:
 
 ```sql
 insert into public.profiles(id,national_id,full_name,role,must_change_password)
@@ -202,6 +202,10 @@ npm run test:browser
 | `supabase/functions/` | `admin-user` و `account-security` |
 | `assets/icons/` و `manifest.webmanifest` | نشان و هویت برنامه |
 | `tests/` و `package*.json` | تست توسعه؛ خارج از مسیر اجرای سایت |
+
+## اتصال حساب به ChatGPT (OAuth 2.1)
+
+راهنمای فنی و استقرار امن در [docs/chatgpt-oauth.md](docs/chatgpt-oauth.md) قرار دارد. این قابلیت پس از استقرار school-login، مهاجرت و ممیزی کامل Auth identities، ثبت OAuth Client، تنظیم Hook مخاطب توکن، استقرار MCP و تست واقعی قابل فعال‌سازی است. تا آن زمان پرچم امنیتی خاموش می‌ماند. هیچ رمز عبور یا OTP به ChatGPT ارسال نمی‌شود.
 
 ## GitHub Pages
 

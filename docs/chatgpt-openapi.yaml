@@ -1,0 +1,87 @@
+openapi: 3.1.0
+info:
+  title: System School — ChatGPT Read-only API
+  description: |
+    Access only the requesting user's display name and permitted classes.
+    All permission and ownership checks are enforced by the school backend.
+  version: 1.0.0
+servers:
+  - url: https://efibfevyiepkwpnobaro.supabase.co/functions/v1
+security:
+  - schoolOAuth: [profile]
+paths:
+  /chatgpt-api/me:
+    get:
+      operationId: getMySchoolAccount
+      summary: View the connected school account
+      description: Returns only the currently connected user's ID and display name.
+      responses:
+        '200':
+          description: Connected user identity.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyAccount'
+        '401':
+          description: Unauthenticated or invalid token.
+        '403':
+          description: Revoked authorization, missing local capability or MFA required.
+  /chatgpt-api/my/classes:
+    get:
+      operationId: getMySchoolClasses
+      summary: View only my authorized classes
+      description: |
+        Students see enrolled classes; teachers see assigned classes;
+        managers require MFA and see classes permitted by existing school role.
+      responses:
+        '200':
+          description: List of authorized classes (possibly empty).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [classes]
+                properties:
+                  classes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SchoolClass'
+        '401':
+          description: Unauthenticated or invalid token.
+        '403':
+          description: Revoked authorization, missing local capability or MFA required.
+components:
+  securitySchemes:
+    schoolOAuth:
+      type: oauth2
+      description: |
+        Supabase Auth handles the OAuth code/PKCE flow. The standard OAuth
+        scope is profile; profile.read and classes.read are checked separately
+        by the school resource server and are NOT protocol OAuth scopes.
+      flows:
+        authorizationCode:
+          authorizationUrl: https://efibfevyiepkwpnobaro.supabase.co/auth/v1/oauth/authorize
+          tokenUrl: https://efibfevyiepkwpnobaro.supabase.co/auth/v1/oauth/token
+          scopes:
+            profile: Access to basic profile data via Supabase Auth
+  schemas:
+    MyAccount:
+      type: object
+      required: [id, display_name]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        display_name:
+          type: string
+    SchoolClass:
+      type: object
+      required: [id, title, academic_year]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        academic_year:
+          type: string

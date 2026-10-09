@@ -1,3 +1,8 @@
 node_modules/
 test-results/
 *.log
+
+# Never commit runtime keys or deployment secrets.
+.env
+.env.*
+!.env.example

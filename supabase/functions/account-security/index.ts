@@ -18,6 +18,8 @@ Deno.serve(async req=>{
     const admin=createClient(url,key("SUPABASE_SECRET_KEYS","SUPABASE_SERVICE_ROLE_KEY"),{auth:{persistSession:false,autoRefreshToken:false}});
     const {data:user,error:authError}=await caller.auth.getUser(token);
     if(authError||!user.user)throw new Error("UNAUTHORIZED");
+    const {data:claims,error:claimsError}=await caller.auth.getClaims(token);
+    if(claimsError||!claims?.claims||claims.claims.client_id)throw new Error("UNAUTHORIZED");
     const {data:profile,error:profileError}=await admin.from("profiles").select("id,role,active,national_id").eq("id",user.user.id).single();
     if(profileError||!profile?.active)throw new Error("UNAUTHORIZED");
     if(profile.role==="manager"){

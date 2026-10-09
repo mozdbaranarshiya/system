@@ -19,6 +19,7 @@
   <script defer src="./config.js"></script>
   <script defer src="./app.js"></script>
   <script defer src="./js/core.js"></script>
+  <script defer src="./js/oauth.js"></script>
   <script defer src="./js/auth.js"></script>
   <script defer src="./js/timetable.js"></script>
   <script defer src="./js/attendance.js"></script>
@@ -131,6 +132,26 @@
     </form>
   </section>
 
+  <section id="oauthConsentView" class="mfa-shell hidden" aria-live="polite">
+    <div class="mfa-card">
+      <img class="v7-brand-logo" src="./assets/icons/logo.svg" alt="نشان سامانه مدرسه">
+      <h1>اتصال حساب به ChatGPT</h1>
+      <p><strong id="oauthClientName">ChatGPT</strong> می‌خواهد به حساب شما دسترسی داشته باشد.</p>
+      <p>حساب: <strong id="oauthAccountName"></strong></p>
+      <p>نقش: <strong id="oauthAccountRole"></strong></p>
+      <p class="muted">مقصد بازگشت ثبت‌شده: <span id="oauthRedirectUri"></span></p>
+      <p class="muted">دسترسی‌های هویتی OAuth: <span id="oauthNativeScopes"></span></p>
+      <p>قابلیت‌های محدود API سامانه:</p>
+      <ul><li>مشاهده نام نمایشی و شناسه حساب (<code>profile.read</code>)</li>
+          <li>مشاهده کلاس‌هایی که نقش و عضویت شما اجازه می‌دهد (<code>classes.read</code>)</li></ul>
+      <p class="hint">هیچ رمز عبور، کد دومرحله‌ای یا مجوز ویرایش به ChatGPT داده نمی‌شود.</p>
+      <div id="oauthError" class="alert alert-warning hidden" role="alert"></div>
+      <div class="actions">
+        <button class="btn btn-ghost" id="oauthDeny" type="button" disabled>لغو اتصال</button>
+        <button class="btn btn-primary" id="oauthApprove" type="button" disabled>اجازه می‌دهم</button>
+      </div>
+    </div>
+  </section>
   <section id="appView" class="app-shell hidden">
     <aside class="sidebar">
       <div class="sidebar-brand">

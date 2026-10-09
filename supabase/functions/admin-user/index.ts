@@ -104,6 +104,10 @@ Deno.serve(async (req) => {
       throw new Error(`UNAUTHORIZED: ${formatError(authError || "user not found")}`);
     }
 
+    // OAuth clients use the narrow chatgpt-api resource server, not admin actions.
+    const {data: claimsData, error: claimsError}=await caller.auth.getClaims(token);
+    if(claimsError || !claimsData?.claims || claimsData.claims.client_id)throw new Error("UNAUTHORIZED");
+
     // Manager authorization is checked with the server/admin client.
     const { data: callerProfile, error: profileError } = await admin
       .from("profiles")
@@ -154,17 +158,14 @@ Deno.serve(async (req) => {
         throw new Error("INVALID_DATA");
       }
 
-      const email = `${nationalId}@school.local`;
+      // Random opaque Auth email; national ID is kept ONLY in private profiles.
+      const email = `u-${crypto.randomUUID()}@school.local`;
 
       const { data, error: createError } = await admin.auth.admin.createUser({
         email,
         password: nationalId,
         email_confirm: true,
-        user_metadata: {
-          full_name: fullName,
-          national_id: nationalId,
-          role,
-        },
+        user_metadata: {},
       });
 
       if (createError || !data?.user) {
@@ -215,13 +216,8 @@ Deno.serve(async (req) => {
       }
 
       const attrs: Record<string, unknown> = {
-        email: `${nationalId}@school.local`,
-        email_confirm: true,
-        user_metadata: {
-          full_name: fullName,
-          national_id: nationalId,
-          role,
-        },
+        // Never derive email from national ID; preserve the existing opaque email.
+        user_metadata: {},
       };
 
       if (password) attrs.password = password;
