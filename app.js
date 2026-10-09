@@ -497,6 +497,7 @@ async function enterApp(){
   }
 
   if(window.SchoolV7?.requirePassword())return;
+  if(await window.SchoolOAuth?.showConsent?.())return;
   showOnlyView("#appView");
   window.SchoolV7?.afterEnter?.();
   $("#userName").textContent=data.full_name;
