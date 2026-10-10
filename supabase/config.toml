@@ -1,0 +1,9 @@
+# These functions validate the exact user JWT with Supabase Auth themselves.
+# OAuth also accepts opaque connector tokens and unauthenticated code exchange.
+# This supports modern publishable keys without relying on legacy gateway JWTs.
+[functions.oauth-connector]
+verify_jwt = false
+[functions.admin-user]
+verify_jwt = false
+[functions.account-security]
+verify_jwt = false

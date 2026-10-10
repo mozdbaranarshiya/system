@@ -25,6 +25,32 @@ function readKey(newEnvName: string, legacyEnvName: string): string {
   throw new Error(`MISSING_ENV_KEY: ${newEnvName}/${legacyEnvName}`);
 }
 
+function databaseSchema(): string {
+  const schema = Deno.env.get("SYSTEM_DB_SCHEMA") || "public";
+  if (!/^[a-z_][a-z0-9_]{0,62}$/.test(schema)) throw new Error("INVALID_DB_SCHEMA");
+  return schema;
+}
+
+// Decode only after Auth has validated this exact token. A signed AAL2 claim
+// alone can outlive unenrollment, logout or a persisted session downgrade.
+function managerSession(token: string, userId: string, supabaseUrl: string): string {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3 || token.length > 8192) throw new Error();
+    const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const claims = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(payload), x => x.charCodeAt(0))));
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!claims || typeof claims !== "object" || Array.isArray(claims)
+      || !uuid.test(userId) || claims.sub !== userId || typeof claims.session_id !== "string" || !uuid.test(claims.session_id)
+      || claims.aal !== "aal2" || claims.role !== "authenticated" || claims.aud !== "authenticated"
+      || claims.iss !== supabaseUrl.replace(/\/$/, "") + "/auth/v1" || Object.hasOwn(claims, "client_id")
+      || typeof claims.exp !== "number" || !Number.isFinite(claims.exp) || claims.exp <= Math.floor(Date.now() / 1000)) throw new Error();
+    return claims.session_id;
+  } catch {
+    throw new Error("MFA_REQUIRED");
+  }
+}
+
 function formatError(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
@@ -75,12 +101,14 @@ Deno.serve(async (req) => {
 
     const publishableKey = readKey("SUPABASE_PUBLISHABLE_KEYS", "SUPABASE_ANON_KEY");
     const secretKey = readKey("SUPABASE_SECRET_KEYS", "SUPABASE_SERVICE_ROLE_KEY");
+    const schema = databaseSchema();
 
     const authHeader = req.headers.get("Authorization") || "";
     const token = authHeader.replace(/^Bearer\s+/i, "").trim();
     if (!token) throw new Error("UNAUTHORIZED: missing user token");
 
     const caller = createClient(supabaseUrl, publishableKey, {
+      db: { schema },
       auth: {
         persistSession: false,
         autoRefreshToken: false,
@@ -93,6 +121,7 @@ Deno.serve(async (req) => {
     });
 
     const admin = createClient(supabaseUrl, secretKey, {
+      db: { schema },
       auth: {
         persistSession: false,
         autoRefreshToken: false,
@@ -118,15 +147,27 @@ Deno.serve(async (req) => {
     if (callerProfile.must_change_password) throw new Error("ACCOUNT_NOT_READY");
     if (callerProfile.role !== "manager") throw new Error("MANAGER_ONLY");
 
-    // Manager operations require a second factor (TOTP / AAL2), not only
-    // possession of the password. The supplied JWT was already validated above.
-    const { data: aalData, error: aalError } =
-      await caller.auth.mfa.getAuthenticatorAssuranceLevel(token);
-    if (aalError) {
-      throw new Error(`MFA_CHECK_FAILED: ${formatError(aalError)}`);
-    }
-    if (aalData?.currentLevel !== "aal2") {
+    const sessionId = managerSession(token, authData.user.id, supabaseUrl);
+    try {
+      const { data: sessionReady, error: sessionError } = await admin.rpc("assert_manager_session", {
+        p_user: authData.user.id, p_session: sessionId,
+      });
+      if (sessionError || sessionReady !== true) throw new Error();
+    } catch {
       throw new Error("MFA_REQUIRED");
+    }
+
+    // Auth is shared across schemas. School managers may only mutate accounts
+    // that already belong to this school, never another application's users.
+    async function requireManagedProfile(userId: string): Promise<void> {
+      const { data: target, error } = await admin
+        .from("profiles")
+        .select("id, role")
+        .eq("id", userId)
+        .single();
+      if (error || target?.id !== userId || !["teacher", "student"].includes(target?.role)) {
+        throw new Error("TARGET_NOT_MANAGED");
+      }
     }
 
     const body = await req.json();
@@ -214,6 +255,8 @@ Deno.serve(async (req) => {
         throw new Error("INVALID_DATA");
       }
 
+      await requireManagedProfile(userId);
+
       const attrs: Record<string, unknown> = {
         email: `${nationalId}@school.local`,
         email_confirm: true,
@@ -263,9 +306,14 @@ Deno.serve(async (req) => {
       if (!userId) throw new Error("INVALID_DATA");
       if (userId === authData.user.id) throw new Error("CANNOT_DELETE_SELF");
 
-      const { error } = await admin.auth.admin.deleteUser(userId);
+      await requireManagedProfile(userId);
+      // A dedicated school schema shares Auth with the other application.
+      // Removing school membership must preserve that identity and its data.
+      const { error } = schema === "public"
+        ? await admin.auth.admin.deleteUser(userId)
+        : await admin.rpc("remove_profile_access", { p_user: userId, p_actor: authData.user.id });
       if (error) {
-        throw new Error(`AUTH_DELETE_FAILED: ${formatError(error)}`);
+        throw new Error(schema === "public" ? "AUTH_DELETE_FAILED" : "PROFILE_DELETE_FAILED");
       }
 
       return json({ ok: true });

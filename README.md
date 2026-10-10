@@ -44,23 +44,25 @@
 
 رمز حساب‌های موجود عوض نمی‌شود. تنها حساب‌هایی که hash رمز آن‌ها هنوز با کد ملی برابر است، `must_change_password=true` می‌گیرند؛ حساب‌های جدید و رمزهایی که مدیر بازنشانی می‌کند نیز این پرچم را دارند. حساب مدیر ابتدا MFA و سپس تغییر رمز اولیه را تکمیل می‌کند.
 
-پس از SQL، **هر دو Edge Function را مستقر کنید** و سپس فایل‌های رابط نسخه ۷ را منتشر کنید. رابط جدید پیش از اجرای Migrationها قابل استفاده کامل نیست.
+پس از چهار Migration، `supabase/migrations/20261009_manager_session_guard.sql` را برای کنترل Session و عامل MFA جاری مدیر اجرا کنید؛ سپس **هر دو Edge Function را مستقر کنید** و فایل‌های رابط نسخه ۷ را منتشر کنید. رابط جدید پیش از اجرای Migrationها قابل استفاده کامل نیست. افزودن OAuth به Migration جداگانهٔ بخش اتصال ChatGPT نیاز دارد.
 
 ```bash
 supabase login
 supabase link --project-ref YOUR_PROJECT_REF
-supabase functions deploy admin-user
-supabase functions deploy account-security
+supabase functions deploy admin-user --no-verify-jwt
+supabase functions deploy account-security --no-verify-jwt
 ```
 
-`admin-user` ساخت و مدیریت کاربران را فقط برای مدیر فعال با AAL2 و رمز تغییرکرده انجام می‌دهد. `account-security` JWT و رمز فعلی را بررسی می‌کند، فقط رمز همان حساب را تغییر می‌دهد و پرچم اولیه را سمت سرور برمی‌دارد. رمز جدید حداقل ۸ کاراکتر، متفاوت از رمز فعلی و کد ملی است.
+هر دو تابع JWT دقیق را از Supabase Auth معتبر می‌کنند؛ تنظیم gateway در `supabase/config.toml` با کلید Publishable جدید سازگار است. `admin-user` ساخت و مدیریت کاربران را فقط برای مدیر فعال با AAL2، عامل TOTP جاری و رمز تغییرکرده انجام می‌دهد. `account-security` JWT و رمز فعلی را بررسی می‌کند، فقط رمز همان حساب را تغییر می‌دهد و پرچم اولیه را سمت سرور برمی‌دارد؛ مدیر ابتدا باید Session/MFA جاری معتبر داشته باشد. رمز جدید حداقل ۸ کاراکتر، متفاوت از رمز فعلی و کد ملی است.
 
 این توابع از متغیرهای محیطی Supabase استفاده می‌کنند: `SUPABASE_URL`، `SUPABASE_ANON_KEY` و `SUPABASE_SERVICE_ROLE_KEY`؛ تنظیم کلیدهای جدید `SUPABASE_PUBLISHABLE_KEYS` و `SUPABASE_SECRET_KEYS` نیز پشتیبانی می‌شود. کلید سرویس فقط در Edge Function است و نباید در `config.js` یا مخزن قرار گیرد.
 
 ## راه‌اندازی پروژه جدید
 
+اگر پروژهٔ مقصد از قبل برنامه یا جدول‌های دیگری دارد، مسیر [نصب مستقل مدرسه در پروژهٔ مشترک](docs/MIGRATION.md) را استفاده کنید. نصب مستقیم جدول‌های مدرسه در `public` چنین پروژه‌ای می‌تواند با جدول‌های موجود تداخل داشته باشد.
+
 1. یک پروژه Supabase بسازید و `supabase/schema.sql` را اجرا کنید؛ این فایل پایه شامل امکانات تا نسخه ۶.۱ و MFA است.
-2. چهار Migration نسخه ۷ را طبق جدول بالا اجرا کنید. Migrationهای قبلی را بعد از آن دوباره اجرا نکنید.
+2. چهار Migration نسخه ۷ و سپس Migration کنترل Session مدیر `20261009_manager_session_guard.sql` را طبق توضیح بالا اجرا کنید. Migrationهای قبلی را بعد از آن دوباره اجرا نکنید.
 3. `SUPABASE_URL`، `SUPABASE_ANON_KEY` عمومی و `SCHOOL_NAME` را در `config.js` تنظیم کنید.
 4. هر دو Edge Function را مستقر کنید.
 5. در Authentication → Users یک مدیر با ایمیل `کدملی@school.local` و رمز اولیه بسازید و Auto Confirm را فعال کنید. سپس با UUID واقعی حساب، پروفایل را ایجاد کنید:
@@ -156,6 +158,14 @@ Audit با Trigger و شناسه حساب احرازشده ساخته می‌ش�
 
 نشان اصلی در `assets/icons/logo.svg` است. PNGهای ۱۶، ۳۲، ۱۸۰، ۱۹۲ و ۵۱۲ و ICO در همان پوشه‌اند. Manifest فارسی و RTL، `start_url` و `scope` نسبی دارد و زیرمسیر `/system/` را پشتیبانی می‌کند. نصب‌پذیری روی دستگاه تابع پشتیبانی مرورگر است؛ برنامه اتصال زنده به Supabase دارد و حالت آفلاین پیاده نشده است.
 
+## اتصال حساب به ChatGPT
+
+افزونهٔ OAuth از Login و MFA موجود استفاده می‌کند و فقط داده‌های مجاز حساب را با scopeهای محدود و توکن‌های قابل لغو در اختیار Client می‌گذارد. رمز کاربر و TOTP به ChatGPT ارسال نمی‌شود. راهنمای معماری، migration افزایشی، تنظیمات سرور، ثبت callback دقیق، چرخهٔ توکن و استقرار در [docs/OAUTH.md](docs/OAUTH.md) و schema خواندن API در [docs/chatgpt-openapi.yaml](docs/chatgpt-openapi.yaml) قرار دارند.
+
+برای افزودن OAuth به دیتابیس نسخهٔ ۷، `supabase/migrations/20261007_oauth_connector.sql` بعد از چهار Migration قبلی لازم است؛ `20261009_manager_session_guard.sql` نیز کنترل MFA جاری مسیرهای مدیریتی را اضافه می‌کند. هر سه تابع با تنظیم gateway ذکرشده در مستندات مستقر شوند. در پروژهٔ مشترکِ دارای برنامهٔ آزمون، نصب‌کنندهٔ مستقل [docs/MIGRATION.md](docs/MIGRATION.md) جایگزین اجرای مستقیم این فایل‌ها روی `public` است. تنظیم سرور `SYSTEM_DB_SCHEMA=school` و تنظیم عمومی سایت `SUPABASE_DB_SCHEMA: "school"` و `ASSIGNMENT_BUCKET: "school-assignment-files"` برای آن مقصد لازم‌اند. اجرا و تست محلی، جایگزین انتقال داده، استقرار و تنظیم Client واقعی با callback دقیق GPT Builder نیست.
+
+تست‌های اختصاصی: `npm run test:oauth`. تست Auth واقعی اختیاری با `npm run test:auth:live` و تست رقابت PostgreSQL با `npm run test:oauth:concurrency` روی سرویس آزمایشی Docker محلی اجرا می‌شوند و به داده یا کلید Supabase تولید دست نمی‌زنند. تست Consent در مرورگر با `npm run test:oauth:browser` اجرا می‌شود.
+
 ## توسعه و تست
 
 Node.js نسخه ۲۴ و npm برای تست کافی است:
@@ -167,12 +177,14 @@ npm test
 npm run test:xlsx
 ```
 
-- `check`: بررسی syntax تمام فایل‌های JavaScript و هر دو Edge Function.
+- `check`: بررسی syntax تمام فایل‌های JavaScript و هر سه Edge Function.
 - تست دیتابیس: اجرای schema قدیمی و چهار Migration روی PostgreSQL آزمایشی PGlite، سپس ۶۳ تست حفظ اطلاعات و RLS/RPC، زمان آزمون، تصحیح، رأی ناشناس، ظرفیت، تداخل، اعلان و سازگاری گروه/تکلیف قدیمی.
 - تست واحد: تبدیل شمسی و سال کبیسه، صفر و نمره ناقص، اندازه آیکون و مسیر Manifest.
-- تست امنیت حساب: ۹ بررسی اعتبارسنجی درخواست با Auth و دیتابیس mock؛ این تست استقرار واقعی Supabase Auth را جایگزین نمی‌کند.
+- تست امنیت حساب و مدیریت کاربران: ۲۲ و ۳۲ بررسی مرز درخواست، Session/MFA معتبر و عضویت مدرسه با Auth/SDK جایگزین؛ این تست‌ها استقرار واقعی Supabase Auth را جایگزین نمی‌کنند.
+- تست نصب مستقل: ۴۰ بررسی PostgreSQL آزمایشی برای حفظ برنامهٔ موجود، RLS و Storage، کنترل کاربران مشترک و MFA مدیر؛ دستور مستقل `npm run test:schema` است.
+- تست OAuth: ۲۲۱ بررسی DB، HTTP، Handler→SQL و UI؛ تست‌های تکمیلی GoTrue واقعی و رقابت PostgreSQL جداگانه اجرا می‌شوند.
 - تست صفحات: ۷۳ بررسی DOM با دیتابیس واقعی آزمایشی برای سه نقش، تغییر رمز اجباری، فرم و ذخیره پاسخ تشریحی بدون blur.
-- `test:xlsx`: دریافت نسخه ثابت SheetJS از CDN رسمی، ساخت و بازخوانی `.xlsx` واقعی و بررسی RTL، فارسی، نوع عدد و صفر ابتدای کد ملی. فایل آزمایش در `test-results/` قرار می‌گیرد.
+- `test:xlsx`: دریافت SheetJS ثابت ۰.۲۰.۳ از jsDelivr با SHA-256 تطبیق‌یافته با منبع رسمی، بررسی اصالت cache و ساخت و بازخوانی `.xlsx` واقعی؛ RTL، فارسی، نوع عدد و صفر ابتدای کد ملی بررسی می‌شوند. فایل آزمایش در `test-results/` قرار می‌گیرد.
 
 تست‌ها به پروژه Supabase زنده، کاربران واقعی یا service role نیاز ندارند و تغییری در آن‌ها نمی‌دهند.
 
@@ -183,7 +195,7 @@ npx playwright install --with-deps chromium
 npm run test:browser
 ```
 
-این تست از همان دیتابیس آزمایشی و SDK جایگزین استفاده می‌کند و درخواست به Supabase زنده را مسدود می‌کند. تصاویر دسکتاپ/موبایل، PDF و Excel را در `test-results/` می‌سازد. در محیط توسعه فعلی اجرای Chromium با SIGTRAP متوقف شد؛ بنابراین QA بصری، PDF مرورگر و رفتار MFA/Auth روی پروژه مستقر، هنوز تأیید نشده‌اند. تست DOM موفق به‌معنای تأیید بصری نیست. اجرای مرورگر در محیط استاندارد و آزمایش پروژه Supabase آزمایشی، مرحله بررسی پیش از انتشار عمومی است.
+این تست از همان دیتابیس آزمایشی و SDK جایگزین استفاده می‌کند و درخواست به Supabase زنده را مسدود می‌کند. تصاویر دسکتاپ/موبایل، PDF و Excel را در `test-results/` می‌سازد. در محیط ابری، اجرای Chromium سیستم با `CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium` موفق شد: ۵۶ بررسی صفحات، موبایل و خروجی‌ها پاس شدند. این نتیجه تأیید ورود به پروژهٔ تولید یا اتصال Client واقعی ChatGPT نیست؛ آزمون استقرار و callback واقعی پیش از انتشار عمومی لازم است.
 
 ## ساختار فایل‌ها
 
@@ -199,7 +211,9 @@ npm run test:browser
 | `js/forms.js`، `js/polls.js`، `js/extracurricular.js`، `js/appointments.js`، `js/behavior.js`، `js/search.js` | سایر بخش‌های نسخه ۷ |
 | `supabase/schema.sql` | schema پایه؛ بدون تغییر در این ارتقا |
 | `supabase/migrations/20261002_system_v7_*.sql` | چهار Migration افزایشی |
-| `supabase/functions/` | `admin-user` و `account-security` |
+| `supabase/migrations/20261007_oauth_connector.sql`، `20261009_manager_session_guard.sql` | OAuth افزایشی و کنترل Session/MFA مدیر |
+| `supabase/install-school.mjs`، `docs/MIGRATION.md` | تولید نصب مستقل مدرسه و راهنمای انتقال به پروژهٔ مشترک |
+| `supabase/functions/` | `admin-user`، `account-security` و `oauth-connector` |
 | `assets/icons/` و `manifest.webmanifest` | نشان و هویت برنامه |
 | `tests/` و `package*.json` | تست توسعه؛ خارج از مسیر اجرای سایت |
 

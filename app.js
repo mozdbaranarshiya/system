@@ -2,6 +2,10 @@
 "use strict";
 
 const cfg = window.APP_CONFIG || {};
+const dbSchema = cfg.SUPABASE_DB_SCHEMA || "public";
+const assignmentBucket = cfg.ASSIGNMENT_BUCKET || "assignment-files";
+const authOptions = typeof cfg.SUPABASE_AUTH_STORAGE_KEY === "string" && cfg.SUPABASE_AUTH_STORAGE_KEY
+  ? {auth:{storageKey:cfg.SUPABASE_AUTH_STORAGE_KEY}} : {};
 const configured = cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY &&
   !cfg.SUPABASE_URL.includes("YOUR_PROJECT") && !cfg.SUPABASE_ANON_KEY.includes("YOUR_");
 
@@ -25,12 +29,13 @@ function persianizeNode(root){
   const nodes=[];
   while(walker.nextNode())nodes.push(walker.currentNode);
   nodes.forEach(n=>{
-    if(n.parentElement?.closest("script,style"))return;
+    if(n.parentElement?.closest("script,style,[data-machine-text]"))return;
     const next=toFaDigits(n.nodeValue);
     if(next!==n.nodeValue)n.nodeValue=next;
   });
   if(root.querySelectorAll){
     root.querySelectorAll("input,textarea").forEach(inp=>{
+      if(inp.closest("[data-machine-text]"))return;
       if(["password","file","hidden","checkbox","radio","number","date","time","datetime-local"].includes(inp.type))return;
       const next=toFaDigits(inp.value);
       if(next!==inp.value)inp.value=next;
@@ -41,6 +46,7 @@ function setupPersianDigits(){
   document.addEventListener("input",e=>{
     const el=e.target;
     if(!(el instanceof HTMLInputElement||el instanceof HTMLTextAreaElement))return;
+    if(el.closest("[data-machine-text]"))return;
     if(["password","file","hidden","checkbox","radio","number","date","time","datetime-local"].includes(el.type))return;
     const pos=el.selectionStart, next=toFaDigits(el.value);
     if(next!==el.value){
@@ -57,6 +63,7 @@ function setupPersianDigits(){
     nodes.forEach(n=>{
       if(!n?.isConnected)return;
       if(n.nodeType===Node.TEXT_NODE){
+        if(n.parentElement?.closest("[data-machine-text]"))return;
         const next=toFaDigits(n.nodeValue);
         if(next!==n.nodeValue)n.nodeValue=next;
       }else if(n.nodeType===Node.ELEMENT_NODE){
@@ -75,7 +82,7 @@ function setupPersianDigits(){
   persianizeNode(document.body);
 }
 const state = {
-  sb: configured ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null,
+  sb: configured ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {db:{schema:dbSchema},...authOptions}) : null,
   session:null, profile:null, route:"dashboard",
   profiles:[], grades:[], classes:[], subjects:[], assignments:[], classStudents:[], representatives:[],
   refsLoadedAt:0, refsPromise:null, pageCache:new Map()
@@ -99,7 +106,7 @@ async function uploadAssignmentFile(path,file,onProgress=()=>{}){
   if(!session?.access_token)throw new Error("نشست کاربری معتبر نیست.");
 
   const safePath=path.split("/").map(encodeURIComponent).join("/");
-  const url=`${cfg.SUPABASE_URL.replace(/\/$/,"")}/storage/v1/object/assignment-files/${safePath}`;
+  const url=`${cfg.SUPABASE_URL.replace(/\/$/,"")}/storage/v1/object/${encodeURIComponent(assignmentBucket)}/${safePath}`;
 
   await new Promise((resolve,reject)=>{
     const xhr=new XMLHttpRequest();
@@ -235,7 +242,7 @@ function clearPageCache(prefix=""){
 
 
 function showOnlyView(view){
-  ["#loginView","#mfaView","#appView","#passwordView"].forEach(sel=>$(sel)?.classList.add("hidden"));
+  ["#loginView","#mfaView","#appView","#passwordView","#oauthView"].forEach(sel=>$(sel)?.classList.add("hidden"));
   $(view)?.classList.remove("hidden");
 }
 async function currentMfaLevel(){
@@ -243,11 +250,11 @@ async function currentMfaLevel(){
   if(error)throw error;
   return data;
 }
-async function ensureManagerMfa(){
+async function ensureManagerMfa(force=false){
   if(state.profile?.role!=="manager")return true;
 
   const level=await currentMfaLevel();
-  if(level?.currentLevel==="aal2")return true;
+  if(level?.currentLevel==="aal2"&&!force)return true;
 
   const {data:factors,error:factorsError}=await state.sb.auth.mfa.listFactors();
   if(factorsError)throw factorsError;
@@ -337,6 +344,7 @@ function waitForManagerMfa({mode,factorId,qr="",secret="",uri=""}){
       settled=true;
       form.onsubmit=null;
       logoutBtn.onclick=null;
+      clearMfaFields();
       resolve(value);
     };
 
@@ -374,11 +382,18 @@ function waitForManagerMfa({mode,factorId,qr="",secret="",uri=""}){
     };
 
     logoutBtn.onclick=async()=>{
-      try{await state.sb.auth.signOut()}catch(_){}
+      try{await signOutApp()}catch(_){}
       showLogin();
       finish(false);
     };
   });
+}
+function clearMfaFields(){
+  $("#mfaSecret").textContent="";
+  $("#mfaQrImage").removeAttribute("src");
+  $("#openMfaUri").href="#";
+  $("#copyMfaSecret").onclick=null;
+  $("#mfaCode").value="";
 }
 async function resetManagerMfa(){
   if(state.profile?.role!=="manager")return;
@@ -393,13 +408,16 @@ async function resetManagerMfa(){
     if(error)throw error;
   }
   try{await state.sb.auth.refreshSession()}catch(_){}
-  await state.sb.auth.signOut();
+  await signOutApp();
   showLogin();
   toast("اتصال Ente Auth حذف شد. در ورود بعدی QR جدید ساخته می‌شود.");
 }
 
 document.addEventListener("DOMContentLoaded", init);
+let initStarted=false;
 async function init(){
+  if(initStarted)return;
+  initStarted=true;
   setupPersianDigits();
   $("#schoolTitle").textContent=cfg.SCHOOL_NAME||"سامانه مدرسه";
   $("#todayText").textContent=new Intl.DateTimeFormat("fa-IR",{dateStyle:"long"}).format(new Date());
@@ -427,19 +445,23 @@ async function login(e){
   try{
     const {data,error}=await state.sb.auth.signInWithPassword({email:`${nid}@school.local`,password});
     if(error)return toast("نام کاربری یا رمز عبور نادرست است.",true);
+    $("#loginPassword").value="";
     state.session=data.session; await enterApp();
   }catch(error){toast(errText(error),true)}finally{btn.disabled=false;}
 }
-async function logout(){await state.sb.auth.signOut();showLogin();}
+function signOutApp(){return dbSchema==="public"?state.sb.auth.signOut():state.sb.auth.signOut({scope:"local"});}
+async function logout(){await signOutApp();showLogin();}
 function showLogin(){
   window.SchoolV7?.cleanup?.();
+  clearMfaFields();
   state.profile=null; state.refsLoadedAt=0; state.pageCache.clear();
   $("#appView").classList.add("hidden");
   $("#mfaView")?.classList.add("hidden");
   $("#passwordView")?.classList.add("hidden");
+  $("#oauthView")?.classList.add("hidden");
   $("#loginView").classList.remove("hidden");
 }
-function refsStorageKey(){return state.session?.user?.id?`school-refs-v7:${state.session.user.id}`:null;}
+function refsStorageKey(){return state.session?.user?.id?`school-refs-v7:${cfg.SUPABASE_URL.replace(/\/$/,"")}:${dbSchema}:${state.session.user.id}`:null;}
 function applyRefBundle(data){
   if(!data||typeof data!=="object")return false;
   const keys=["profiles","grades","classes","subjects","assignments","classStudents","representatives"];
@@ -482,7 +504,7 @@ function setRoleLabel(){
 
 async function enterApp(){
   const {data,error}=await state.sb.from("profiles").select("*").eq("id",state.session.user.id).single();
-  if(error||!data?.active){await state.sb.auth.signOut();return toast("حساب کاربری فعال نیست.",true);}
+  if(error||!data?.active){await signOutApp();return toast("حساب کاربری فعال نیست.",true);}
   state.profile=data;
 
   if(data.role==="manager"){
@@ -490,13 +512,14 @@ async function enterApp(){
       const verified=await ensureManagerMfa();
       if(!verified)return;
     }catch(e){
-      await state.sb.auth.signOut();
+      await signOutApp();
       showLogin();
       return toast("راه‌اندازی احراز هویت دومرحله‌ای مدیر انجام نشد: "+errText(e),true);
     }
   }
 
   if(window.SchoolV7?.requirePassword())return;
+  if(await window.SchoolV7?.resumeOAuth?.())return;
   showOnlyView("#appView");
   window.SchoolV7?.afterEnter?.();
   $("#userName").textContent=data.full_name;
@@ -621,14 +644,14 @@ async function renderDashboard(){
 }
 
 async function renderUsers(){
-  setPage("مدیریت کاربران","افزودن، ویرایش، حذف و تغییر رمز معلمان و دانش‌آموزان");
+  setPage("مدیریت کاربران",cfg.SUPABASE_DB_SCHEMA&&cfg.SUPABASE_DB_SCHEMA!=="public"?"افزودن، ویرایش، قطع دسترسی و تغییر رمز معلمان و دانش‌آموزان":"افزودن، ویرایش، حذف و تغییر رمز معلمان و دانش‌آموزان");
   await refreshRefs();
   const users=state.profiles.filter(x=>x.role!=="manager");
   $("#content").innerHTML=`<div class="card"><div class="panel-head"><div><h3>کاربران</h3><p class="muted">در زمان ساخت، نام کاربری و رمز اولیه هر دو کد ملی هستند.</p></div>
   <button class="btn btn-primary" id="addUser">+ کاربر جدید</button></div><br>
   ${table(["نام","کد ملی","نقش","وضعیت","عملیات"],users.map(u=>`<tr><td>${esc(u.full_name)}</td><td>${esc(u.national_id)}</td><td>${roleBadge(u.role)}</td>
   <td>${u.active?'<span class="badge">فعال</span>':'<span class="badge danger">غیرفعال</span>'}</td>
-  <td><div class="actions"><button class="btn btn-ghost edit-user" data-id="${u.id}">ویرایش</button><button class="btn btn-ghost danger del-user" data-id="${u.id}">حذف</button></div></td></tr>`))}</div>`;
+  <td><div class="actions"><button class="btn btn-ghost edit-user" data-id="${u.id}">ویرایش</button><button class="btn btn-ghost danger del-user" data-id="${u.id}">${cfg.SUPABASE_DB_SCHEMA&&cfg.SUPABASE_DB_SCHEMA!=="public"?"قطع دسترسی":"حذف"}</button></div></td></tr>`))}</div>`;
   $("#addUser").onclick=()=>userModal();
   document.querySelectorAll(".edit-user").forEach(b=>b.onclick=()=>userModal(byId(users,b.dataset.id)));
   document.querySelectorAll(".del-user").forEach(b=>b.onclick=()=>deleteUser(b.dataset.id));
@@ -647,10 +670,11 @@ function userModal(u=null){
   });
 }
 async function deleteUser(id){
-  if(!confirm("این کاربر و داده‌های وابسته حذف شود؟"))return;
+  const schoolAccess=cfg.SUPABASE_DB_SCHEMA&&cfg.SUPABASE_DB_SCHEMA!=="public";
+  if(!confirm(schoolAccess?"دسترسی این کاربر به سامانه قطع شود؟ تاریخچه و حساب او در برنامه‌های دیگر حفظ می‌شود.":"این کاربر و داده‌های وابسته حذف شود؟"))return;
   try{
     await invokeFunction("admin-user",{action:"delete",user_id:id});
-    toast("کاربر حذف شد.");await refreshRefs(true);renderUsers();
+    toast(schoolAccess?"دسترسی کاربر قطع شد.":"کاربر حذف شد.");await refreshRefs(true);renderUsers();
   }catch(e){toast(errText(e),true);}
 }
 
@@ -1199,7 +1223,7 @@ function openStudentSubmission(task,existing){
       });
 
       if(error){
-        await state.sb.storage.from("assignment-files").remove([uploaded.path]);
+        await state.sb.storage.from(assignmentBucket).remove([uploaded.path]);
         uploaded=null;
         setUploadState("error","ارسال ثبت نشد؛ فایل موقت حذف شد. دوباره تلاش کنید.");
         $("#modalSubmit").disabled=true;
@@ -1207,7 +1231,7 @@ function openStudentSubmission(task,existing){
       }
 
       if(existing?.file_path && existing.file_path!==uploaded.path){
-        await state.sb.storage.from("assignment-files").remove([existing.file_path]);
+        await state.sb.storage.from(assignmentBucket).remove([existing.file_path]);
       }
       clearPageCache("homework:");
       toast(existing?"تکلیف اصلاح‌شده ارسال شد.":"تکلیف با موفقیت ارسال شد.");
@@ -1292,7 +1316,7 @@ function openStudentSubmission(task,existing){
     setUploadState("uploading","فایل در حال انتقال به سامانه است…");
 
     if(uploaded?.path){
-      await state.sb.storage.from("assignment-files").remove([uploaded.path]);
+      await state.sb.storage.from(assignmentBucket).remove([uploaded.path]);
       uploaded=null;
     }
 
@@ -1323,7 +1347,7 @@ function openStudentSubmission(task,existing){
 }
 
 async function openStoredFile(path){
-  const {data,error}=await state.sb.storage.from("assignment-files").createSignedUrl(path,120);
+  const {data,error}=await state.sb.storage.from(assignmentBucket).createSignedUrl(path,120);
   if(error)return toast(errText(error),true);
   window.open(data.signedUrl,"_blank","noopener");
 }
@@ -1910,5 +1934,5 @@ function resolveObjection(id,approve,score=null){
 }
 window.SystemCore={state,cfg,$,esc,toast,errText,modal,table,setPage,setLoading,faRole,faStatus,faDateTime,
   toEnDigits,toFaDigits,className,subjectName,userName,byId,ensureSheetJS,invokeFunction,
-  refreshRefs,navigate,enterApp,showOnlyView,logout,renderDashboard,renderSettings,studentObjectionModal,init};
+  refreshRefs,navigate,enterApp,showOnlyView,ensureManagerMfa,logout,renderDashboard,renderSettings,studentObjectionModal,init};
 })();

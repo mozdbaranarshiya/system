@@ -1,0 +1,60 @@
+name: Publish school plugin upload ZIP
+
+on:
+  push:
+    branches: [feature/secure-chatgpt-oauth]
+    paths: [.github/workflows/school-plugin-release.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: school-plugin-upload-20261010
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'mozdbaranarshiya/system'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      SCHOOL_PLUGIN_RELEASE_TAG: system-school-plugin-20261010-2019ae0
+      SCHOOL_PLUGIN_SOURCE_SHA: 2019ae002bff477335de1336dae32a05b759af58
+      SCHOOL_PLUGIN_ZIP_SHA256: d22dd4e6ba7063ca58d81d8e0b5bfe26292f965d2469d5a81e4e63e41b780345
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Test credential and request boundaries
+        run: node tests/plugin-package.mjs
+      - name: Build and verify the reviewed release archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -I -B plugins/package_school.py --out "$RUNNER_TEMP/system-school-plugin-20261010.zip"
+          python3 -I -B - <<'PY'
+          import hashlib, json, os, pathlib, urllib.request
+          archive = pathlib.Path(os.environ['RUNNER_TEMP']) / 'system-school-plugin-20261010.zip'
+          digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+          assert digest == os.environ['SCHOOL_PLUGIN_ZIP_SHA256'], 'Archive differs from the reviewed package'
+          archive.with_name(archive.name + '.sha256').write_text(digest + '  ' + archive.name + '\n')
+          url = 'https://api.github.com/repos/mozdbaranarshiya/system/releases/tags/' + os.environ['SCHOOL_PLUGIN_RELEASE_TAG']
+          request = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
+          with urllib.request.urlopen(request, timeout=20) as response:
+              release = json.load(response)
+          assert release['tag_name'] == os.environ['SCHOOL_PLUGIN_RELEASE_TAG']
+          assert release['target_commitish'] == os.environ['SCHOOL_PLUGIN_SOURCE_SHA'], 'Unexpected release source'
+          assert release['draft'] is False and release['prerelease'] is True
+          print('Reviewed archive and existing preview release verified.')
+          PY
+      - name: Upload temporary assets without replacing existing files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$SCHOOL_PLUGIN_RELEASE_TAG" \
+            "$RUNNER_TEMP/system-school-plugin-20261010.zip" \
+            "$RUNNER_TEMP/system-school-plugin-20261010.zip.sha256" \
+            --repo "$GITHUB_REPOSITORY"

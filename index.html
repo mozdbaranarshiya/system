@@ -4,8 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="theme-color" content="#2563eb" />
+  <meta name="referrer" content="no-referrer" />
   <title>سامانه آموزش و پرورش استان اصفهان</title>
-  <link rel="preconnect" href="https://efibfevyiepkwpnobaro.supabase.co" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vazirmatn@33.0.3/Vazirmatn-Variable-font-face.css">
   <link rel="stylesheet" href="./styles.css" />
@@ -20,6 +20,7 @@
   <script defer src="./app.js"></script>
   <script defer src="./js/core.js"></script>
   <script defer src="./js/auth.js"></script>
+  <script defer src="./js/oauth.js"></script>
   <script defer src="./js/timetable.js"></script>
   <script defer src="./js/attendance.js"></script>
   <script defer src="./js/exams.js"></script>
@@ -92,7 +93,7 @@
           </div>
           <div class="mfa-secret-wrap">
             <span>یا کلید راه‌اندازی را دستی وارد کنید</span>
-            <code id="mfaSecret"></code>
+            <code id="mfaSecret" data-machine-text></code>
             <div class="actions">
               <button id="copyMfaSecret" class="btn btn-ghost" type="button">کپی کلید</button>
               <a id="openMfaUri" class="btn btn-ghost" href="#" rel="noopener">باز کردن در Authenticator</a>
@@ -129,6 +130,13 @@
       <button id="passwordSubmit" class="btn btn-primary full" type="submit">تغییر رمز و ادامه</button>
       <button id="passwordLogout" class="btn btn-ghost full" type="button">خروج</button>
     </form>
+  </section>
+
+  <section id="oauthView" class="mfa-shell hidden" aria-live="polite">
+    <div class="mfa-card oauth-card">
+      <img class="v7-brand-logo" src="./assets/icons/logo.svg" alt="نشان سامانه مدرسه">
+      <div id="oauthContent"></div>
+    </div>
   </section>
 
   <section id="appView" class="app-shell hidden">
