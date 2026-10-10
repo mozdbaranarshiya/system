@@ -51,6 +51,8 @@ npm run package:plugin -- --out /tmp/system-school-plugin.zip
 
 آرشیو دقیقاً شش فایل مجاز دارد؛ لینک، فایل اضافی، Credential کامل یا خروجی داخل Git checkout رد می‌شود. ZIP در Git history ثبت نمی‌شود. فایل دانلود موقت در GitHub Release نگهداری می‌شود تا مالک پس از Upload درخواست حذف بدهد؛ حذف Asset، کد منبع Plugin را از مخزن حذف نمی‌کند.
 
+نسخهٔ ۲۰۲۶-۱۰-۱۰ منتشر و از لینک عمومی دوباره دانلود و بررسی شد: [دانلود ZIP](https://github.com/mozdbaranarshiya/system/releases/download/system-school-plugin-20261010-2019ae0/system-school-plugin-20261010.zip)، [Checksum](https://github.com/mozdbaranarshiya/system/releases/download/system-school-plugin-20261010-2019ae0/system-school-plugin-20261010.zip.sha256) و [Release موقت](https://github.com/mozdbaranarshiya/system/releases/tag/system-school-plugin-20261010-2019ae0). فایل ۱۳٬۵۵۹ بایت است و SHA-256 آن `d22dd4e6ba7063ca58d81d8e0b5bfe26292f965d2469d5a81e4e63e41b780345` است. [GitHub Actions](https://github.com/mozdbaranarshiya/system/actions/runs/38064167509) شصت‌ونه بررسی بسته و ZIP را موفق اجرا و Assetها را بدون بازنویسی فایل موجود منتشر کرد. Manifest از قالب Codex Plugin است؛ این نتیجه تأیید پذیرش در Upload خود ChatGPT نیست.
+
 ## قطع اتصال
 
 کاربر در سایت **برنامه‌های متصل → قطع اتصال** را انتخاب کند. Access Token، Refresh Token، کدها و درخواست‌های معلق همان اتصال باطل می‌شوند. برای اتصال دوباره، Consent تازه لازم است. مدیر با مجوز داخلی و MFA تازه نیز می‌تواند Client یا اتصال مجاز را لغو کند.
