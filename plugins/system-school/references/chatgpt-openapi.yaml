@@ -1,0 +1,182 @@
+openapi: 3.1.0
+info:
+  title: School account connector
+  version: 1.0.0
+  description: Read only school data with the connected user's current permissions. The backend enforces scope and resource access on every request.
+servers:
+  - url: https://efibfevyiepkwpnobaro.supabase.co/functions/v1/oauth-connector
+paths:
+  /api/me:
+    get:
+      operationId: getAccountIdentity
+      summary: Get the connected account's minimal identity
+      security:
+        - schoolOAuth: [profile.read]
+      responses:
+        '200':
+          description: Identity without national ID, credentials, roles or permissions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, display_name]
+                properties:
+                  id: {type: string, format: uuid}
+                  display_name: {type: string}
+        default: {$ref: '#/components/responses/Failure'}
+  /api/classes:
+    get:
+      operationId: listPermittedClasses
+      summary: List classes the connected user currently belongs to or may manage
+      security:
+        - schoolOAuth: [classes.read]
+      parameters:
+        - {$ref: '#/components/parameters/Class'}
+        - {$ref: '#/components/parameters/Student'}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Offset'}
+      responses:
+        '200':
+          description: A page of permitted classes
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/Page'}
+                  - type: object
+                    properties:
+                      rows:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: {type: string, format: uuid}
+                            title: {type: string}
+                            grade_id: {type: string, format: uuid}
+                            academic_year: {type: string}
+        default: {$ref: '#/components/responses/Failure'}
+  /api/grades:
+    get:
+      operationId: listPermittedGrades
+      summary: Read permitted grades; student visibility and teacher class/subject assignments are enforced
+      security:
+        - schoolOAuth: [grades.read]
+      parameters:
+        - {$ref: '#/components/parameters/Class'}
+        - {$ref: '#/components/parameters/Student'}
+        - {$ref: '#/components/parameters/Subject'}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Offset'}
+      responses:
+        '200':
+          description: A page of permitted grades; incomplete scores remain null
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/Page'}
+                  - type: object
+                    properties:
+                      rows:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: {type: string, format: uuid}
+                            student_id: {type: string, format: uuid}
+                            class_id: {type: string, format: uuid}
+                            subject_id: {type: string, format: uuid}
+                            period: {type: string}
+                            continuous_score: {type: [number, 'null']}
+                            final_score: {type: [number, 'null']}
+                            lesson_score: {type: [number, 'null']}
+        default: {$ref: '#/components/responses/Failure'}
+  /api/assignments:
+    get:
+      operationId: listPermittedAssignments
+      summary: Read assigned homework visible to the user; student group membership and current teacher assignments are enforced
+      security:
+        - schoolOAuth: [assignments.read]
+      parameters:
+        - {$ref: '#/components/parameters/Class'}
+        - {$ref: '#/components/parameters/Student'}
+        - {$ref: '#/components/parameters/Subject'}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Offset'}
+      responses:
+        '200':
+          description: A page of permitted homework metadata without private submissions or files
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/Page'}
+                  - type: object
+                    properties:
+                      rows:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: {type: string, format: uuid}
+                            title: {type: string}
+                            description: {type: [string, 'null']}
+                            class_id: {type: string, format: uuid}
+                            subject_id: {type: string, format: uuid}
+                            due_at: {type: string, format: date-time}
+        default: {$ref: '#/components/responses/Failure'}
+components:
+  securitySchemes:
+    schoolOAuth:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: https://efibfevyiepkwpnobaro.supabase.co/functions/v1/oauth-connector/oauth/authorize
+          tokenUrl: https://efibfevyiepkwpnobaro.supabase.co/functions/v1/oauth-connector/oauth/token
+          scopes:
+            profile.read: Read the connected account's name and ID
+            classes.read: Read permitted classes
+            grades.read: Read permitted grades
+            assignments.read: Read permitted homework metadata
+  parameters:
+    Class:
+      name: class_id
+      in: query
+      description: Optional permitted class ID; unrelated classes are denied
+      schema: {type: string, format: uuid}
+    Student:
+      name: student_id
+      in: query
+      description: Optional permitted student ID; students may request only their own ID
+      schema: {type: string, format: uuid}
+    Subject:
+      name: subject_id
+      in: query
+      description: Optional subject ID; this filter never grants access to an unassigned subject
+      schema: {type: string, format: uuid}
+    Limit:
+      name: limit
+      in: query
+      schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+    Offset:
+      name: offset
+      in: query
+      schema: {type: integer, minimum: 0, maximum: 10000, default: 0}
+  schemas:
+    Page:
+      type: object
+      required: [rows, offset, limit]
+      properties:
+        rows: {type: array, items: {type: object}}
+        offset: {type: integer}
+        limit: {type: integer}
+  responses:
+    Failure:
+      description: OAuth token invalid/expired/revoked, scope or resource denied, invalid request, rate limited or temporarily unavailable
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error: {type: string}

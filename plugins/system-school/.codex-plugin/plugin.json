@@ -1,0 +1,17 @@
+{
+  "name": "system-school",
+  "version": "1.0.0",
+  "description": "Set up secure OAuth account linking to the existing school system and read permitted account data when the runtime supplies a secure OAuth access-token binding.",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "سامانه مدرسه",
+    "shortDescription": "راهنمای اتصال امن حساب مدرسه با OAuth",
+    "longDescription": "Integration setup and read-only HTTPS helper for the existing school system. Upload acceptance and platform OAuth token injection require separate verification. This package does not provide an MCP server or register a platform app.",
+    "developerName": "system",
+    "capabilities": ["Read"],
+    "defaultPrompt": [
+      "اتصال امن حساب مدرسه را راه‌اندازی کن.",
+      "پس از اتصال معتبر، کلاس‌های مجاز حساب من را نمایش بده."
+    ]
+  }
+}
